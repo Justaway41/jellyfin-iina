@@ -242,7 +242,7 @@ async function handleLogin(e) {
         connectBtn.disabled = false;
         connectBtn.textContent = 'Connect';
         const serverHostValue = new URL(serverUrl).hostname;
-        updateServerHeader(serverHostValue, serverHostValue);
+        updateServerHeader(serverDisplayName || serverHostValue, serverHostValue);
         userName.textContent = state.username;
         showBrowseView();
         loadHome();
