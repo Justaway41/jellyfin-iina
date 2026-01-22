@@ -1,0 +1,22 @@
+{
+  "name": "Jellyfin",
+  "identifier": "xyz.brbc.jellyfin",
+  "version": "1.0.0",
+  "description": "Browse and play media from your Jellyfin server",
+  "author": {
+    "name": "ada-bee"
+  },
+  "entry": "main.js",
+  "globalEntry": "global.js",
+  "sidebarTab": {
+    "name": "Jellyfin"
+  },
+  "permissions": [
+    "network-request",
+    "show-osd",
+    "show-alert",
+    "sidebar",
+    "file-system"
+  ],
+  "allowedDomains": ["*"]
+}
