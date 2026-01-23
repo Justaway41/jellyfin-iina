@@ -10,9 +10,6 @@ let activePlayerId = null;
 let pendingShowSidebar = false;
 let pendingPlayerId = null;
 
-// Try to find splash image path - log available APIs for debugging
-console.log('Jellyfin: iina.preferences =', typeof iina.preferences);
-
 const SPLASH_URL = '~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin.png';
 
 // Listen for player registration

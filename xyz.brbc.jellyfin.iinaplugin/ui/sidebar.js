@@ -3,8 +3,15 @@
 
 // Constants
 const CLIENT_NAME = 'IINA Jellyfin Plugin';
-const CLIENT_VERSION = '1.0.0';
+const CLIENT_VERSION = '1.0.2';
 const DEVICE_NAME = 'IINA';
+const DEBUG_LOGS = false;
+
+function log(...args) {
+    if (DEBUG_LOGS) {
+        console.log('Jellyfin UI:', ...args);
+    }
+}
 
 // State management
 const state = {
@@ -118,7 +125,7 @@ function saveSessionToStorage() {
         savedAt: Date.now()
     };
     localStorage.setItem('jellyfin-session', JSON.stringify(sessionData));
-    console.log('Session saved to localStorage');
+    log('Session saved to localStorage');
 }
 
 function loadSessionFromStorage() {
@@ -138,7 +145,7 @@ function loadSessionFromStorage() {
 
 function clearSessionFromStorage() {
     localStorage.removeItem('jellyfin-session');
-    console.log('Session cleared from localStorage');
+    log('Session cleared from localStorage');
 }
 
 
@@ -190,6 +197,10 @@ function setupEventListeners() {
     });
     clearSearchButton.addEventListener('click', handleClearSearch);
 
+    // Delegated handlers for dynamic content
+    content.addEventListener('click', handleContentClick);
+    content.addEventListener('keydown', handleContentKeydown);
+    content.addEventListener('error', handleContentError, true);
 }
 
 // Login handler - direct API call
@@ -259,10 +270,10 @@ async function handleLogin(e) {
 function handleLogout() {
     // Clear local state
     state.serverUrl = '';
-        state.serverName = '';
-        state.accessToken = '';
-        state.userId = '';
-        state.username = '';
+    state.serverName = '';
+    state.accessToken = '';
+    state.userId = '';
+    state.username = '';
 
     state.breadcrumb = [];
     state.currentLibrary = null;
@@ -342,7 +353,7 @@ async function reloadItems(breadcrumb) {
 
         hideLoading();
         if (items.length === 0) {
-            content.innerHTML = '<div class="empty-state">No items found</div>';
+            renderEmptyState('No items found');
             return;
         }
         renderListCards(items, { showSeriesName: false });
@@ -363,7 +374,7 @@ async function reloadSeasons(breadcrumb) {
 
         hideLoading();
         if (seasons.length === 0 && !nextUpItem) {
-            content.innerHTML = '<div class="empty-state">No seasons found</div>';
+            renderEmptyState('No seasons found');
             return;
         }
         renderSeriesOverview(nextUpItem, seasons);
@@ -383,7 +394,7 @@ async function reloadEpisodes(breadcrumb) {
 
         hideLoading();
         if (episodes.length === 0) {
-            content.innerHTML = '<div class="empty-state">No episodes found</div>';
+            renderEmptyState('No episodes found');
             return;
         }
         renderListCards(episodes, { showSeriesName: false, showEpisodeNumber: true, useEpisodeThumbnail: true });
@@ -421,7 +432,7 @@ function refreshSidebarContent(reason) {
     }
 
     pendingSidebarRefresh = false;
-    console.log('Refreshing sidebar content:', reason || 'unknown');
+    log('Refreshing sidebar content:', reason || 'unknown');
 
     if (state.searchQuery) {
         performSearch(state.searchQuery);
@@ -445,6 +456,14 @@ function showLoading() {
 function hideLoading() {
     loading.classList.add('hidden');
     content.classList.remove('hidden');
+}
+
+function renderEmptyState(message) {
+    const emptyState = document.createElement('div');
+    emptyState.className = 'empty-state';
+    emptyState.textContent = message;
+    content.innerHTML = '';
+    content.appendChild(emptyState);
 }
 
 function showError(message) {
@@ -597,7 +616,7 @@ async function loadItems(libraryId, libraryName, collectionType) {
         updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || 'Items');
 
         if (items.length === 0) {
-            content.innerHTML = '<div class="empty-state">No items found</div>';
+            renderEmptyState('No items found');
             return;
         }
         renderListCards(items, { showSeriesName: false });
@@ -623,7 +642,7 @@ async function loadSeasons(seriesId, seriesName) {
         updateTitle(seriesName);
 
         if (seasons.length === 0 && !nextUpItem) {
-            content.innerHTML = '<div class="empty-state">No seasons found</div>';
+            renderEmptyState('No seasons found');
             return;
         }
 
@@ -654,7 +673,7 @@ async function loadEpisodes(seriesId, seasonId, seasonName) {
         updateTitle(seasonName);
 
         if (episodes.length === 0) {
-            content.innerHTML = '<div class="empty-state">No episodes found</div>';
+            renderEmptyState('No episodes found');
             return;
         }
         renderListCards(episodes, { showSeriesName: false, showEpisodeNumber: true, useEpisodeThumbnail: true });
@@ -672,7 +691,6 @@ function renderListCards(items, options = {}) {
     `;
 
     content.innerHTML = html;
-    attachListCardHandlers(content);
 }
 
 function renderHomeSections(nextUpItems, recentMovies, recentEpisodes) {
@@ -688,7 +706,7 @@ function renderHomeSections(nextUpItems, recentMovies, recentEpisodes) {
             return `
                 <div class="home-section">
                     <h3>${section.title}</h3>
-                    <div class="empty-state">No items found</div>
+                    <div class="empty-state" data-empty="true">No items found</div>
                 </div>
             `;
         }
@@ -706,7 +724,6 @@ function renderHomeSections(nextUpItems, recentMovies, recentEpisodes) {
     }).join('');
 
     content.innerHTML = html;
-    attachListCardHandlers(content);
 }
 
 function renderSeriesOverview(nextUpItem, seasons) {
@@ -735,7 +752,6 @@ function renderSeriesOverview(nextUpItem, seasons) {
     }
 
     content.innerHTML = sections.join('');
-    attachListCardHandlers(content);
 }
 
 function buildSeasonCard(season) {
@@ -751,8 +767,7 @@ function buildSeasonCard(season) {
                      src="${imageUrl}"
                      data-fallback="${seriesPosterUrl}"
                      alt="${seasonName}"
-                     loading="lazy"
-                     onerror="handleSeasonPosterError(this)">
+                     loading="lazy">
             </div>
             <div class="season-title">${seasonName}</div>
         </div>
@@ -777,42 +792,82 @@ async function loadNextUpForSeries(seriesId) {
     }
 }
 
-function attachListCardHandlers(root) {
-    root.querySelectorAll('.list-card').forEach(card => {
-        const handleSelect = () => {
-            const id = card.dataset.id;
-            const name = card.dataset.name;
-            const type = card.dataset.type;
-            const resume = parseInt(card.dataset.resume) || 0;
+function getCardContext(card) {
+    if (!card) return null;
 
-            if (type === 'Series') {
-                loadSeasons(id, name);
-                return;
-            }
+    const id = card.dataset.id;
+    const name = card.dataset.name || '';
+    const type = card.dataset.type;
+    const resume = parseInt(card.dataset.resume) || 0;
 
-            if (type === 'Season') {
-                loadEpisodes(state.currentSeries.id, id, name);
-                return;
-            }
+    return {
+        id,
+        name,
+        type,
+        resume,
+        context: {
+            seriesId: card.dataset.seriesId || '',
+            seasonId: card.dataset.seasonId || '',
+            episodeIndex: card.dataset.episodeIndex
+                ? parseInt(card.dataset.episodeIndex, 10)
+                : null
+        }
+    };
+}
 
-            const context = {
-                seriesId: card.dataset.seriesId || '',
-                seasonId: card.dataset.seasonId || '',
-                episodeIndex: card.dataset.episodeIndex
-                    ? parseInt(card.dataset.episodeIndex, 10)
-                    : null
-            };
-            playItem(id, name, resume, context);
-        };
+function handleListCardSelection(card) {
+    const details = getCardContext(card);
+    if (!details || !details.id) return;
 
-        card.addEventListener('click', handleSelect);
-        card.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                handleSelect();
-            }
-        });
-    });
+    const { id, name, type, resume, context } = details;
+
+    if (type === 'Series') {
+        loadSeasons(id, name);
+        return;
+    }
+
+    if (type === 'Season') {
+        loadEpisodes(state.currentSeries?.id || '', id, name);
+        return;
+    }
+
+    playItem(id, name, resume, context);
+}
+
+function findListCard(target) {
+    if (!target || !target.closest) return null;
+    return target.closest('.list-card');
+}
+
+function handleContentClick(event) {
+    const card = findListCard(event.target);
+    if (!card || !content.contains(card)) return;
+
+    handleListCardSelection(card);
+}
+
+function handleContentKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+
+    const card = findListCard(event.target);
+    if (!card || !content.contains(card)) return;
+
+    event.preventDefault();
+    handleListCardSelection(card);
+}
+
+function handleContentError(event) {
+    const imageElement = event.target;
+    if (!imageElement || imageElement.tagName !== 'IMG') return;
+
+    if (imageElement.classList.contains('season-thumb')) {
+        handleSeasonPosterError(imageElement);
+        return;
+    }
+
+    if (imageElement.classList.contains('list-thumb')) {
+        handleEpisodeThumbError(imageElement);
+    }
 }
 
 function buildListCard(item, options) {
@@ -828,8 +883,10 @@ function buildListCard(item, options) {
         : '';
     const thumbnailUrl = getThumbnailUrl(item, options);
     const useEpisodeFallback = options.useEpisodeThumbnail && item.Type === 'Episode' && seriesId;
-    const fallbackThumbnailUrl = useEpisodeFallback ? getImageUrl(seriesId, 'Thumb', 160) : '';
-    const thumbErrorHandler = useEpisodeFallback ? 'handleEpisodeThumbError(this)' : "this.style.display='none'";
+    const useBackdropFallback = item.Type === 'Movie' || item.Type === 'Series';
+    const fallbackThumbnailUrl = useEpisodeFallback
+        ? getImageUrl(seriesId, 'Thumb', 160)
+        : (useBackdropFallback ? getImageUrl(item.Id, 'Backdrop', 320) : '');
 
     return `
         <div class="list-card" data-id="${item.Id}" data-name="${escapeHtml(item.Name)}" data-type="${item.Type}" data-resume="${item.UserData?.PlaybackPositionTicks || 0}" data-series-id="${seriesId}" data-season-id="${seasonId}" data-episode-index="${episodeIndex}" data-clickable tabindex="0" role="button">
@@ -837,9 +894,10 @@ function buildListCard(item, options) {
                 <img class="list-thumb"
                      src="${thumbnailUrl}"
                      data-fallback="${fallbackThumbnailUrl}"
+                     data-item-id="${item.Id}"
+                     data-type="${item.Type}"
                      alt="${escapeHtml(item.Name)}"
-                     loading="lazy"
-                     onerror="${thumbErrorHandler}">
+                     loading="lazy">
                 <div class="play-overlay">▶</div>
                 ${progressBar}
             </div>
@@ -934,21 +992,14 @@ function getThumbnailUrl(item, options = {}) {
 }
 
 function handleEpisodeThumbError(imageElement) {
-    if (!imageElement) {
-        return;
-    }
-
-    const fallbackUrl = imageElement.dataset.fallback || '';
-    if (fallbackUrl && imageElement.dataset.fallbackApplied !== 'true') {
-        imageElement.dataset.fallbackApplied = 'true';
-        imageElement.src = fallbackUrl;
-        return;
-    }
-
-    imageElement.style.display = 'none';
+    handleImageFallback(imageElement);
 }
 
 function handleSeasonPosterError(imageElement) {
+    handleImageFallback(imageElement);
+}
+
+function handleImageFallback(imageElement) {
     if (!imageElement) {
         return;
     }
@@ -957,6 +1008,15 @@ function handleSeasonPosterError(imageElement) {
     if (fallbackUrl && imageElement.dataset.fallbackApplied !== 'true') {
         imageElement.dataset.fallbackApplied = 'true';
         imageElement.src = fallbackUrl;
+        return;
+    }
+
+    const itemId = imageElement.dataset.itemId || '';
+    const type = imageElement.dataset.type || '';
+    const usedBackdrop = imageElement.dataset.backdropApplied === 'true';
+    if (!usedBackdrop && itemId && (type === 'Movie' || type === 'Series')) {
+        imageElement.dataset.backdropApplied = 'true';
+        imageElement.src = getImageUrl(itemId, 'Backdrop', 320);
         return;
     }
 
@@ -1043,7 +1103,7 @@ async function performSearch(query) {
 
         hideLoading();
         if (items.length === 0) {
-            content.innerHTML = '<div class="empty-state">No results found</div>';
+            renderEmptyState('No results found');
             return;
         }
         renderSearchResults(items);
@@ -1085,7 +1145,7 @@ function renderSearchResults(items) {
 
     const visibleSections = sections.filter(section => section.items.length > 0);
     if (visibleSections.length === 0) {
-        content.innerHTML = '<div class="empty-state">No results found</div>';
+        renderEmptyState('No results found');
         return;
     }
 
@@ -1099,7 +1159,6 @@ function renderSearchResults(items) {
     `).join('');
 
     content.innerHTML = html;
-    attachListCardHandlers(content);
 }
 
 async function fetchItemDetails(itemId) {
@@ -1210,106 +1269,17 @@ function openInIINA(url, resumeSeconds = 0, title = '') {
 // sidebar.js uses fetch() which works in webviews, so we handle reporting here
 iina.onMessage('reportPlayback', async (data) => {
     if (!state.serverUrl || !state.accessToken) {
-        console.log('Playback reporting skipped: not authenticated');
+        log('Playback reporting skipped: not authenticated');
         return;
     }
 
     try {
         const endpoint = data.endpoint; // e.g., '/Sessions/Playing'
         await apiRequest('POST', endpoint, data.body);
-        console.log('Playback reported:', endpoint);
+        log('Playback reported:', endpoint);
     } catch (error) {
         console.error('Failed to report playback:', error.message);
     }
-});
-
-iina.onMessage('resolveSeasonPlaylist', async (data) => {
-    const reply = (payload) => {
-        iina.postMessage('seasonPlaylistResolved', payload);
-    };
-
-    console.log('Jellyfin UI: resolveSeasonPlaylist', data);
-
-    if (!state.serverUrl || !state.accessToken || !state.userId) {
-        reply({ error: 'not_authenticated' });
-        console.log('Jellyfin UI: season playlist not authenticated');
-        return;
-    }
-
-    if (!data || !data.seriesId || !data.seasonId || !data.itemId) {
-        console.error('Season playlist context missing:', data);
-        reply({ error: 'missing_context' });
-        return;
-    }
-
-    try {
-        const endpoint = `/Shows/${data.seriesId}/Episodes?UserId=${state.userId}` +
-            `&SeasonId=${data.seasonId}` +
-            '&Fields=Overview,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
-        const response = await apiRequest('GET', endpoint);
-        const episodes = (response.Items || []).filter(item => isSupportedItem(item));
-
-        if (episodes.length === 0) {
-            reply({ error: 'no_items' });
-            return;
-        }
-
-        console.log('Jellyfin UI: building season playlist items', episodes.length);
-        const items = [];
-        for (const episode of episodes) {
-            try {
-                const playbackInfo = await apiRequest('POST', `/Items/${episode.Id}/PlaybackInfo?UserId=${state.userId}`, {
-                    DeviceProfile: getDeviceProfile()
-                });
-                const streamUrl = buildStreamUrl(episode, {
-                    playSessionId: playbackInfo.PlaySessionId,
-                    seriesId: episode.SeriesId || data.seriesId,
-                    seasonId: episode.SeasonId || data.seasonId,
-                    episodeIndex: episode.IndexNumber,
-                    runtimeTicks: playbackInfo.MediaSources?.[0]?.RunTimeTicks || 0,
-                    mediaSourceId: playbackInfo.MediaSources?.[0]?.Id
-                });
-                items.push({
-                    id: episode.Id,
-                    streamUrl: streamUrl
-                });
-            } catch (error) {
-                console.error('Failed to build playlist item:', error.message || error);
-            }
-        }
-
-        const startIndex = episodes.findIndex(item => item.Id === data.itemId);
-
-        console.log('Jellyfin UI: season playlist ready', {
-            count: items.length,
-            startIndex: startIndex
-        });
-
-        reply({
-            seriesId: data.seriesId,
-            seasonId: data.seasonId,
-            items: items,
-            startIndex: startIndex
-        });
-    } catch (error) {
-        console.error('Failed to build season playlist:', error.message || error);
-        reply({ error: 'request_failed' });
-    }
-});
-
-iina.onMessage('playResolvedEpisode', async (data) => {
-    if (!data || !data.item) {
-        return;
-    }
-
-    const item = data.item;
-    const context = {
-        seriesId: item.seriesId,
-        seasonId: item.seasonId,
-        episodeIndex: item.episodeIndex
-    };
-    const windowTitle = data.windowTitle || buildWindowTitle(item, item.name);
-    await playItem(item.id, item.name, item.resumeTicks || 0, context, windowTitle);
 });
 
 iina.onMessage('refreshSidebar', () => {
