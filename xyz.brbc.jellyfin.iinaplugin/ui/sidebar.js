@@ -3,7 +3,7 @@
 
 // Constants
 const CLIENT_NAME = 'IINA Jellyfin Plugin';
-const CLIENT_VERSION = '1.0.2';
+const CLIENT_VERSION = '1.1.0';
 const DEVICE_NAME = 'IINA';
 const DEBUG_LOGS = false;
 
@@ -1279,6 +1279,46 @@ iina.onMessage('reportPlayback', async (data) => {
         log('Playback reported:', endpoint);
     } catch (error) {
         console.error('Failed to report playback:', error.message);
+    }
+});
+
+// Fetch media segments for skip intro/credits
+// We run this in the webview to use fetch() and avoid ATS issues
+iina.onMessage('getMediaSegments', async (data) => {
+    if (!state.serverUrl || !state.accessToken) {
+        log('Media segments skipped: not authenticated');
+        iina.postMessage('mediaSegments', { itemId: data?.itemId || '', segments: [] });
+        return;
+    }
+
+    const itemId = data?.itemId || '';
+    if (!itemId) {
+        iina.postMessage('mediaSegments', { itemId: '', segments: [] });
+        return;
+    }
+
+    try {
+        const itemDetails = await fetchItemDetails(itemId);
+        if (itemDetails?.Type !== 'Episode') {
+            iina.postMessage('mediaSegments', { itemId: itemId, segments: [] });
+            return;
+        }
+
+        const endpoint = `/MediaSegments/${itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro`;
+        const result = await apiRequest('GET', endpoint);
+        const items = result?.Items || [];
+        const segments = items.map(segment => {
+            return {
+                type: segment.Type,
+                startTicks: segment.StartTicks,
+                endTicks: segment.EndTicks
+            };
+        });
+
+        iina.postMessage('mediaSegments', { itemId: itemId, segments: segments });
+    } catch (error) {
+        console.error('Failed to fetch media segments:', error.message);
+        iina.postMessage('mediaSegments', { itemId: itemId, segments: [] });
     }
 });
 

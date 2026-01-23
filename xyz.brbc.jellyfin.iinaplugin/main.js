@@ -1,6 +1,6 @@
 // IINA Jellyfin Plugin - main.js
 // Handles playback requests from sidebar and reports playback state to Jellyfin
-const { console, event, sidebar, mpv, global } = iina;
+const { console, core, event, sidebar, mpv, global, overlay, preferences } = iina;
 
 const SHOW_SIDEBAR_DELAY_MS = 300;
 const JELLYFIN_SPLASH_NAME = 'Jellyfin.png';
@@ -14,9 +14,41 @@ let progressReportTimer = null;
 let pendingWindowTitle = null;
 const PROGRESS_REPORT_INTERVAL = 10000; // 10 seconds
 
+const SKIP_SEGMENT_POLL_INTERVAL = 500;
+const SKIP_SEGMENT_PREF_KEY = 'skipSegmentsEnabled';
 
+const SKIP_OVERLAY_STYLE = `
+    .skip-overlay {
+        position: fixed;
+        right: 120px;
+        bottom: 120px;
+        z-index: 1000;
+    }
 
-// Sidebar state for handling message timing
+    .skip-button {
+        font-size: 20px;
+        font-weight: 600;
+        padding: 13px 24px;
+        background: #ffffff;
+        color: #000000;
+        border: none;
+        border-radius: 999px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        cursor: pointer;
+    }
+
+    .skip-button:active {
+        transform: scale(0.98);
+    }
+`;
+
+let skipOverlayVisible = false;
+let skipOverlayEnabled = true;
+let skipOverlayInitialized = false;
+let skipOverlayLabel = '';
+let skipSegmentTimer = null;
+let activeSkipSegment = null;
+
 let windowReady = false;
 let pendingShowSidebar = false;
 let sidebarVisible = false;
@@ -90,6 +122,11 @@ event.on('iina.window-loaded', () => {
         }
     });
 
+    sidebar.onMessage('mediaSegments', (data) => {
+        if (!currentPlayback || !data || data.itemId !== currentPlayback.itemId) return;
+        currentPlayback.segments = normalizeSegments(data.segments || [], currentPlayback);
+    });
+
 
     // Mark window as ready
     windowReady = true;
@@ -160,6 +197,7 @@ event.on('mpv.file-loaded', () => {
 
         if (playSessionId) {
             console.log('Jellyfin: Detected Jellyfin stream, starting playback reporting');
+            clearSkipSegmentState();
             currentPlayback = {
                 itemId: params['_jf_itemId'],
                 mediaSourceId: params['mediaSourceId'],
@@ -167,11 +205,18 @@ event.on('mpv.file-loaded', () => {
                 accessToken: params['api_key'],
                 deviceId: params['_jf_deviceId'],
                 serverUrl: getUrlOrigin(url),
-                runtimeTicks: parseInt(params['_jf_runtimeTicks']) || 0
+                runtimeTicks: parseInt(params['_jf_runtimeTicks']) || 0,
+                segments: []
             };
             applyWindowTitle(pendingWindowTitle);
             reportPlaybackStart();
             startProgressReporting();
+
+            skipOverlayEnabled = isSkipSegmentsEnabled();
+            startSkipSegmentPolling();
+            if (skipOverlayEnabled) {
+                requestMediaSegments();
+            }
         }
     } catch (e) {
         console.log('Jellyfin: URL parse error:', e.message || e);
@@ -197,6 +242,7 @@ event.on('mpv.end-file', () => {
     console.log('Jellyfin: Playback ended');
     reportPlaybackStopped();
     stopProgressReporting();
+    clearSkipSegmentState();
 
     handleNoNextEpisode('auto-play disabled');
 });
@@ -213,6 +259,7 @@ function handleShutdown(reason) {
     console.log('Jellyfin: Shutdown detected (' + reason + '), reporting stop');
     reportPlaybackStopped();
     stopProgressReporting();
+    clearSkipSegmentState();
 }
 
 // Best-effort stop report on quit/close
@@ -230,6 +277,174 @@ event.on('iina.application-will-terminate', () => {
 
 function getPositionTicks() {
     return Math.floor((mpv.getNumber('time-pos') || 0) * 10000000);
+}
+
+function isSkipSegmentsEnabled() {
+    const value = preferences.get(SKIP_SEGMENT_PREF_KEY);
+    if (value === undefined || value === null) return true;
+    return Boolean(value);
+}
+
+function shouldShowSkipOverlay(segment) {
+    if (!segment) return false;
+    if (segment.endSeconds === null || segment.endSeconds === undefined) return false;
+    return segment.endSeconds > segment.startSeconds;
+}
+
+function normalizeSegments(segments, playback) {
+    const runtimeSeconds = playback?.runtimeTicks ? playback.runtimeTicks / 10000000 : 0;
+    const fallbackDuration = core.status.duration;
+    const resolvedRuntime = runtimeSeconds || (typeof fallbackDuration === 'number' ? fallbackDuration : 0);
+
+    return (segments || []).map(segment => {
+        const type = segment.type;
+        const hasStart = segment.startTicks !== undefined && segment.startTicks !== null;
+        const hasEnd = segment.endTicks !== undefined && segment.endTicks !== null;
+        let startSeconds = hasStart ? segment.startTicks / 10000000 : null;
+        let endSeconds = hasEnd ? segment.endTicks / 10000000 : null;
+
+        if (type === 'Intro' && startSeconds === null && endSeconds !== null) {
+            startSeconds = 0;
+        }
+
+        if (type === 'Outro' && endSeconds === null && resolvedRuntime > 0) {
+            endSeconds = resolvedRuntime;
+        }
+
+        return {
+            type: type,
+            startSeconds: startSeconds,
+            endSeconds: endSeconds
+        };
+    }).filter(segment => segment.type === 'Intro' || segment.type === 'Outro');
+}
+
+function getActiveSegment(positionSeconds, segments) {
+    if (!segments || !segments.length) return null;
+    const active = segments.filter(segment => {
+        if (segment.startSeconds === null || segment.endSeconds === null) return false;
+        return positionSeconds >= segment.startSeconds && positionSeconds < segment.endSeconds;
+    });
+
+    if (!active.length) return null;
+
+    const introSegment = active.find(segment => segment.type === 'Intro');
+    return introSegment || active[0];
+}
+
+function getSkipLabel(segment) {
+    if (!segment) return '';
+    if (segment.type === 'Intro') return 'Skip Intro';
+    if (segment.type === 'Outro') return 'Skip Credits';
+    return 'Skip';
+}
+
+function showSkipOverlay(label) {
+    if (skipOverlayVisible) {
+        if (label !== skipOverlayLabel) {
+            overlay.setContent(renderSkipButton(label));
+            skipOverlayLabel = label;
+        }
+        return;
+    }
+
+    skipOverlayLabel = label;
+
+    overlay.simpleMode();
+    overlay.setStyle(SKIP_OVERLAY_STYLE);
+    overlay.setContent(renderSkipButton(label));
+    overlay.setClickable(true);
+    overlay.show();
+    skipOverlayVisible = true;
+
+    if (!skipOverlayInitialized) {
+        overlay.onMessage('skip-segment', () => {
+            if (!activeSkipSegment) return;
+            const target = activeSkipSegment.endSeconds;
+            if (typeof target === 'number' && target > 0) {
+                mpv.set('time-pos', Math.max(0, target + 0.5));
+            }
+            hideSkipOverlay();
+        });
+        skipOverlayInitialized = true;
+    }
+}
+
+function renderSkipButton(label) {
+    return `
+        <div class="skip-overlay">
+            <button class="skip-button" data-clickable onclick="iina.postMessage('skip-segment')" type="button">
+                ${label}
+            </button>
+        </div>
+    `;
+}
+
+function hideSkipOverlay() {
+    if (!skipOverlayVisible) return;
+    overlay.hide();
+    overlay.setClickable(false);
+    skipOverlayVisible = false;
+    skipOverlayLabel = '';
+    activeSkipSegment = null;
+}
+
+function startSkipSegmentPolling() {
+    stopSkipSegmentPolling();
+    skipSegmentTimer = setInterval(() => {
+        refreshSkipSegmentPreference();
+        if (!skipOverlayEnabled || !currentPlayback) {
+            hideSkipOverlay();
+            return;
+        }
+
+        const positionSeconds = mpv.getNumber('time-pos') || 0;
+        const segment = getActiveSegment(positionSeconds, currentPlayback.segments);
+
+        if (segment && shouldShowSkipOverlay(segment)) {
+            const label = getSkipLabel(segment);
+            activeSkipSegment = segment;
+            showSkipOverlay(label);
+        } else {
+            hideSkipOverlay();
+        }
+    }, SKIP_SEGMENT_POLL_INTERVAL);
+}
+
+function stopSkipSegmentPolling() {
+    if (skipSegmentTimer) {
+        clearInterval(skipSegmentTimer);
+        skipSegmentTimer = null;
+    }
+}
+
+function refreshSkipSegmentPreference() {
+    const enabled = isSkipSegmentsEnabled();
+    if (enabled !== skipOverlayEnabled) {
+        skipOverlayEnabled = enabled;
+        if (!skipOverlayEnabled) {
+            hideSkipOverlay();
+            return;
+        }
+
+        if (currentPlayback) {
+            requestMediaSegments();
+        }
+    }
+}
+
+function requestMediaSegments() {
+    if (!currentPlayback || !currentPlayback.itemId) return;
+    sidebar.postMessage('getMediaSegments', { itemId: currentPlayback.itemId });
+}
+
+function clearSkipSegmentState() {
+    stopSkipSegmentPolling();
+    hideSkipOverlay();
+    activeSkipSegment = null;
+    if (currentPlayback) {
+        currentPlayback.segments = [];
+    }
 }
 
 function reportPlaybackStart() {
@@ -301,6 +516,7 @@ function handleNoNextEpisode(reason) {
     console.log('Jellyfin: No next episode:', reason);
     const serverUrl = currentPlayback?.serverUrl || '';
 
+    clearSkipSegmentState();
     currentPlayback = null;
 
     if (serverUrl) {
@@ -313,4 +529,5 @@ function handleNoNextEpisode(reason) {
     showSidebarWithNotification();
     sidebar.postMessage('refreshSidebar', {});
 }
+
 
