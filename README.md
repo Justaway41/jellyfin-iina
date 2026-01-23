@@ -34,3 +34,7 @@ This is a small side project to make watching Jellyfin content in IINA easier. I
 
 - Auto-play next episode (soon-ish).
 - Intro skipper (not that soon, i can't figure out how to make an overlay button clickable, please help).
+
+## Attribution
+
+Includes logos and icons licensed under [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/) by the [Jellyfin Project](https://github.com/jellyfin/jellyfin-ux).
