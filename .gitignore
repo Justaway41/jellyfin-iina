@@ -1,3 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Node/npm
+node_modules/
+
+# Build artifacts
+build/
+dist/
+
+# Env files
+.env
+.env.*
+
+# Local tooling
 .opencode/
 AGENTS.md
-TODO.md
+
+# IINA artifacts
+*.iinaplgz
+*.iinaplugin-dev

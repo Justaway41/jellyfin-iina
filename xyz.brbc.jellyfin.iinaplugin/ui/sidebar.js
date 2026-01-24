@@ -3,7 +3,7 @@
 
 // Constants
 const CLIENT_NAME = 'IINA Jellyfin Plugin';
-const CLIENT_VERSION = '1.1.0';
+const CLIENT_VERSION = '1.2.0';
 const DEVICE_NAME = 'IINA';
 const DEBUG_LOGS = false;
 
@@ -559,15 +559,17 @@ function buildStreamUrl(item, context = {}) {
     const runtimeTicks = item.RunTimeTicks || context.runtimeTicks || 0;
     const mediaSourceId = context.mediaSourceId || item.MediaSources?.[0]?.Id || itemId;
 
-    const urlParams = new URLSearchParams({
+        const urlParams = new URLSearchParams({
         Static: 'true',
         mediaSourceId: mediaSourceId,
         playSessionId: context.playSessionId || '',
         api_key: state.accessToken,
         _jf_itemId: itemId,
         _jf_runtimeTicks: runtimeTicks.toString(),
-        _jf_deviceId: getDeviceId()
+        _jf_deviceId: getDeviceId(),
+        _jf_userId: state.userId
     });
+
 
     if (context.seriesId) {
         urlParams.set('_jf_seriesId', context.seriesId);
@@ -1162,7 +1164,7 @@ function renderSearchResults(items) {
 }
 
 async function fetchItemDetails(itemId) {
-    const endpoint = `/Users/${state.userId}/Items/${itemId}?Fields=ProductionYear,ParentIndexNumber,IndexNumber,SeriesName,SeriesId,SeasonId,ParentId`;
+    const endpoint = `/Users/${state.userId}/Items/${itemId}?Fields=ProductionYear,ParentIndexNumber,IndexNumber,SeriesName,SeriesId,SeasonId,ParentId,Type`;
     return await apiRequest('GET', endpoint);
 }
 
@@ -1325,6 +1327,142 @@ iina.onMessage('getMediaSegments', async (data) => {
 iina.onMessage('refreshSidebar', () => {
     refreshSidebarContent('show');
 });
+
+iina.onMessage('resolveNextEpisode', async (data) => {
+    if (!data || !data.itemId || !data.requestId) return;
+
+    const requestId = data.requestId;
+
+    if (!state.serverUrl || !state.accessToken || !state.userId) {
+        iina.postMessage('autoplayNext', { requestId, url: '', error: 'not authenticated' });
+        return;
+    }
+
+    try {
+        const itemDetails = await fetchItemDetails(data.itemId);
+        if (!itemDetails || itemDetails.Type !== 'Episode') {
+            iina.postMessage('autoplayNext', { requestId, url: '' });
+            return;
+        }
+
+        const seriesId = data.seriesId || itemDetails.SeriesId || '';
+        const seasonId = data.seasonId || itemDetails.SeasonId || itemDetails.ParentId || '';
+        const episodeIndexValue = data.episodeIndex !== undefined && data.episodeIndex !== null
+            ? data.episodeIndex
+            : itemDetails.IndexNumber;
+        const episodeIndex = Number.parseInt(episodeIndexValue, 10);
+
+        if (!seriesId || !seasonId || Number.isNaN(episodeIndex)) {
+            iina.postMessage('autoplayNext', { requestId, url: '' });
+            return;
+        }
+
+        const nextEpisodeItem = await resolveSequentialNextEpisode(seriesId, seasonId, episodeIndex);
+        if (!nextEpisodeItem || nextEpisodeItem.Id === data.itemId) {
+            iina.postMessage('autoplayNext', { requestId, url: '' });
+            return;
+        }
+
+        const context = {
+            seriesId: nextEpisodeItem.SeriesId || seriesId,
+            seasonId: nextEpisodeItem.SeasonId || nextEpisodeItem.ParentId || seasonId,
+            episodeIndex: nextEpisodeItem.IndexNumber
+        };
+        const streamData = await buildAutoplayStream(nextEpisodeItem.Id, context);
+
+        iina.postMessage('autoplayNext', {
+            requestId: requestId,
+            itemId: nextEpisodeItem.Id,
+            url: streamData.url,
+            title: streamData.title || ''
+        });
+    } catch (error) {
+        iina.postMessage('autoplayNext', { requestId, url: '', error: error.message || String(error) });
+    }
+});
+
+async function resolveSequentialNextEpisode(seriesId, seasonId, episodeIndex) {
+    const episodesEndpoint = `/Shows/${seriesId}/Episodes?UserId=${state.userId}`
+        + `&SeasonId=${seasonId}`
+        + '&Fields=Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+    const episodesResponse = await apiRequest('GET', episodesEndpoint);
+    const episodes = (episodesResponse?.Items || []).filter(item => item.Type === 'Episode');
+
+    const nextEpisode = episodes.find(item => item.IndexNumber === episodeIndex + 1);
+    if (nextEpisode) {
+        return nextEpisode;
+    }
+
+    const nextSeason = await findNextSeason(seriesId, seasonId);
+    if (!nextSeason) {
+        return null;
+    }
+
+    const nextSeasonEpisodesEndpoint = `/Shows/${seriesId}/Episodes?UserId=${state.userId}`
+        + `&SeasonId=${nextSeason.Id}`
+        + '&Fields=Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+    const nextSeasonResponse = await apiRequest('GET', nextSeasonEpisodesEndpoint);
+    const nextSeasonEpisodes = (nextSeasonResponse?.Items || []).filter(item => item.Type === 'Episode');
+
+    if (nextSeasonEpisodes.length === 0) {
+        return null;
+    }
+
+    const sortedByIndex = nextSeasonEpisodes
+        .filter(item => item.IndexNumber !== null && item.IndexNumber !== undefined)
+        .sort((a, b) => (a.IndexNumber || 0) - (b.IndexNumber || 0));
+
+    return sortedByIndex[0] || nextSeasonEpisodes[0] || null;
+}
+
+async function findNextSeason(seriesId, seasonId) {
+    const seasons = await fetchSeasons(seriesId);
+    if (!Array.isArray(seasons) || seasons.length === 0) return null;
+
+    const currentSeason = seasons.find(season => season.Id === seasonId);
+    if (!currentSeason) return null;
+
+    const sortedSeasons = [...seasons].sort((a, b) => {
+        if (a.IndexNumber === undefined || a.IndexNumber === null) return 1;
+        if (b.IndexNumber === undefined || b.IndexNumber === null) return -1;
+        return a.IndexNumber - b.IndexNumber;
+    });
+
+    const currentIndex = sortedSeasons.findIndex(season => season.Id === seasonId);
+    if (currentIndex === -1) return null;
+
+    return sortedSeasons[currentIndex + 1] || null;
+}
+
+async function buildAutoplayStream(itemId, context) {
+    const playbackInfo = await apiRequest('POST', `/Items/${itemId}/PlaybackInfo?UserId=${state.userId}`, {
+        DeviceProfile: getDeviceProfile()
+    });
+
+    const playSessionId = playbackInfo.PlaySessionId;
+    const mediaSource = playbackInfo.MediaSources?.[0];
+    const mediaSourceId = mediaSource?.Id || itemId;
+    const runtimeTicks = mediaSource?.RunTimeTicks || 0;
+    const itemDetails = await fetchItemDetails(itemId);
+    const windowTitle = buildWindowTitle(itemDetails, itemDetails?.Name || '');
+
+    const streamUrl = buildStreamUrl({
+        Id: itemId,
+        RunTimeTicks: runtimeTicks
+    }, {
+        playSessionId: playSessionId,
+        mediaSourceId: mediaSourceId,
+        runtimeTicks: runtimeTicks,
+        seriesId: context.seriesId,
+        seasonId: context.seasonId,
+        episodeIndex: context.episodeIndex
+    });
+
+    return {
+        url: streamUrl,
+        title: windowTitle
+    };
+}
 
 
 // Device profile for playback info request (indicates direct play capability)

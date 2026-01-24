@@ -3,8 +3,7 @@
 const { console, core, event, sidebar, mpv, global, overlay, preferences } = iina;
 
 const SHOW_SIDEBAR_DELAY_MS = 300;
-const JELLYFIN_SPLASH_NAME = 'Jellyfin.png';
-const JELLYFIN_SPLASH_URL = `${JELLYFIN_SPLASH_NAME}`;
+const JELLYFIN_SPLASH_URL = '~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin.png';
 
 console.log('Jellyfin: Plugin loaded');
 
@@ -12,10 +11,21 @@ console.log('Jellyfin: Plugin loaded');
 let currentPlayback = null;
 let progressReportTimer = null;
 let pendingWindowTitle = null;
+let autoplayRequestId = 0;
+let autoplayTransitionTimer = null;
+let isReplacingPlayback = false;
+let shouldResetPlaylistOnNextLoad = false;
+let lastKnownPositionTicks = 0;
+let playbackTickTimer = null;
+let playbackTickCount = 0;
 const PROGRESS_REPORT_INTERVAL = 10000; // 10 seconds
+const PLAYBACK_TICK_INTERVAL_MS = 1000;
+const EOF_WATCH_THRESHOLD_SECONDS = 0.5;
 
 const SKIP_SEGMENT_POLL_INTERVAL = 500;
 const SKIP_SEGMENT_PREF_KEY = 'skipSegmentsEnabled';
+const AUTOPLAY_NEXT_PREF_KEY = 'autoplayNextEpisodeEnabled';
+const AUTOPLAY_TRANSITION_TIMEOUT_MS = 2500;
 
 const SKIP_OVERLAY_STYLE = `
     .skip-overlay {
@@ -107,7 +117,14 @@ event.on('iina.window-loaded', () => {
             console.log('Jellyfin: Playing URL:', url.substring(0, 80) + '...');
 
             // Use mpv.command instead of core.open (core.open crashes)
-            mpv.command('loadfile', [url, 'replace']);
+            isReplacingPlayback = true;
+            shouldResetPlaylistOnNextLoad = true;
+            if (data.title) {
+                const safeTitle = String(data.title).replace(/[,\n\r=]/g, ' ');
+                mpv.command('loadfile', [url, 'replace', '-1', `force-media-title=${safeTitle}`]);
+            } else {
+                mpv.command('loadfile', [url, 'replace']);
+            }
 
             // Hide sidebar once playback starts
             hideSidebar();
@@ -125,6 +142,26 @@ event.on('iina.window-loaded', () => {
     sidebar.onMessage('mediaSegments', (data) => {
         if (!currentPlayback || !data || data.itemId !== currentPlayback.itemId) return;
         currentPlayback.segments = normalizeSegments(data.segments || [], currentPlayback);
+    });
+
+    sidebar.onMessage('autoplayNext', (data) => {
+        if (!currentPlayback || !data) return;
+        if (data.requestId && data.requestId !== currentPlayback.autoplayRequestId) return;
+
+        if (data.error) {
+            console.error('Jellyfin: Autoplay lookup failed:', data.error);
+            return;
+        }
+
+        if (!data.url) {
+            currentPlayback.autoplayQueued = false;
+            currentPlayback.nextItemId = '';
+            return;
+        }
+
+        currentPlayback.nextItemId = data.itemId || '';
+        queueNextEpisode(data.url, data.title || '');
+
     });
 
 
@@ -181,12 +218,16 @@ event.on('mpv.file-loaded', () => {
     const url = mpv.getString('path');
     if (!url) return;
 
-    if (url.includes(JELLYFIN_SPLASH_NAME)) {
+    isReplacingPlayback = false;
+    clearAutoplayTransitionTimer();
+
+    if (url.includes('Jellyfin.png')) {
         console.log('Jellyfin: Splash loaded, showing sidebar');
         showSidebarWithNotification();
         sidebar.postMessage('refreshSidebar', {});
         return;
     }
+
 
     // Only process Jellyfin stream URLs
     if (!url.includes('/Videos/') || !url.includes('playSessionId=')) return;
@@ -198,6 +239,14 @@ event.on('mpv.file-loaded', () => {
         if (playSessionId) {
             console.log('Jellyfin: Detected Jellyfin stream, starting playback reporting');
             clearSkipSegmentState();
+            isReplacingPlayback = false;
+
+            const episodeIndexValue = params['_jf_episodeIndex'];
+            const parsedEpisodeIndex = episodeIndexValue !== undefined && episodeIndexValue !== null && episodeIndexValue !== ''
+                ? parseInt(episodeIndexValue, 10)
+                : null;
+            const episodeIndex = Number.isNaN(parsedEpisodeIndex) ? null : parsedEpisodeIndex;
+
             currentPlayback = {
                 itemId: params['_jf_itemId'],
                 mediaSourceId: params['mediaSourceId'],
@@ -206,9 +255,22 @@ event.on('mpv.file-loaded', () => {
                 deviceId: params['_jf_deviceId'],
                 serverUrl: getUrlOrigin(url),
                 runtimeTicks: parseInt(params['_jf_runtimeTicks']) || 0,
+                seriesId: params['_jf_seriesId'] || '',
+                seasonId: params['_jf_seasonId'] || '',
+                episodeIndex: episodeIndex,
+                isEpisode: Boolean(params['_jf_seriesId'] || episodeIndex !== null),
+                autoplayQueued: false,
+                autoplayRequestId: 0,
+                nextItemId: '',
                 segments: []
             };
-            applyWindowTitle(pendingWindowTitle);
+            lastKnownPositionTicks = 0;
+            playbackTickCount = 0;
+            startPlaybackTick();
+            if (pendingWindowTitle) {
+                applyWindowTitle(pendingWindowTitle);
+                pendingWindowTitle = null;
+            }
             reportPlaybackStart();
             startProgressReporting();
 
@@ -216,6 +278,14 @@ event.on('mpv.file-loaded', () => {
             startSkipSegmentPolling();
             if (skipOverlayEnabled) {
                 requestMediaSegments();
+            }
+
+            if (shouldResetPlaylistOnNextLoad) {
+                prunePlaylistToCurrentEntry();
+                shouldResetPlaylistOnNextLoad = false;
+            }
+            if (currentPlayback.isEpisode && isAutoplayNextEnabled()) {
+                requestAutoplayNextEpisode();
             }
         }
     } catch (e) {
@@ -238,18 +308,20 @@ function applyWindowTitle(title) {
 // Report playback stopped when file ends
 event.on('mpv.end-file', () => {
     if (!currentPlayback) return;
+    if (isReplacingPlayback || currentPlayback.autoplayQueued) return;
 
     console.log('Jellyfin: Playback ended');
     reportPlaybackStopped();
     stopProgressReporting();
+    stopPlaybackTick();
     clearSkipSegmentState();
-
-    handleNoNextEpisode('auto-play disabled');
+    handleNoNextEpisode('end of playback');
 });
 
 // Report progress on pause/resume
 event.on('mpv.pause.changed', () => {
     if (currentPlayback) {
+        updateLastKnownPosition();
         reportPlaybackProgress(mpv.getFlag('pause'));
     }
 });
@@ -279,8 +351,22 @@ function getPositionTicks() {
     return Math.floor((mpv.getNumber('time-pos') || 0) * 10000000);
 }
 
+function updateLastKnownPosition() {
+    if (!currentPlayback) return;
+    const ticks = getPositionTicks();
+    if (ticks > 0) {
+        lastKnownPositionTicks = ticks;
+    }
+}
+
 function isSkipSegmentsEnabled() {
     const value = preferences.get(SKIP_SEGMENT_PREF_KEY);
+    if (value === undefined || value === null) return true;
+    return Boolean(value);
+}
+
+function isAutoplayNextEnabled() {
+    const value = preferences.get(AUTOPLAY_NEXT_PREF_KEY);
     if (value === undefined || value === null) return true;
     return Boolean(value);
 }
@@ -485,7 +571,8 @@ function reportPlaybackProgress(isPaused) {
 function reportPlaybackStopped() {
     if (!currentPlayback) return;
     const positionTicks = getPositionTicks();
-    console.log('Jellyfin: Reporting playback stopped at position:', positionTicks);
+    const resolvedTicks = positionTicks || lastKnownPositionTicks || 0;
+    console.log('Jellyfin: Reporting playback stopped at position:', resolvedTicks / 10000000);
 
     sidebar.postMessage('reportPlayback', {
         endpoint: '/Sessions/Playing/Stopped',
@@ -493,7 +580,7 @@ function reportPlaybackStopped() {
             ItemId: currentPlayback.itemId,
             MediaSourceId: currentPlayback.mediaSourceId,
             PlaySessionId: currentPlayback.playSessionId,
-            PositionTicks: positionTicks
+            PositionTicks: resolvedTicks
         }
     });
 }
@@ -501,6 +588,7 @@ function reportPlaybackStopped() {
 function startProgressReporting() {
     stopProgressReporting();
     progressReportTimer = setInterval(() => {
+        updateLastKnownPosition();
         reportPlaybackProgress(mpv.getFlag('pause'));
     }, PROGRESS_REPORT_INTERVAL);
 }
@@ -512,22 +600,163 @@ function stopProgressReporting() {
     }
 }
 
+function startPlaybackTick() {
+    stopPlaybackTick();
+    playbackTickTimer = setInterval(() => {
+        if (!currentPlayback) return;
+        if (isReplacingPlayback) return;
+
+        updateLastKnownPosition();
+        playbackTickCount += 1;
+
+        if (playbackTickCount >= PROGRESS_REPORT_INTERVAL / PLAYBACK_TICK_INTERVAL_MS) {
+            playbackTickCount = 0;
+            reportPlaybackProgress(mpv.getFlag('pause'));
+        }
+
+        if (currentPlayback.autoplayQueued) return;
+
+        const duration = mpv.getNumber('duration');
+        const timePos = mpv.getNumber('time-pos');
+        const paused = mpv.getFlag('pause');
+        const eofReached = mpv.getFlag('eof-reached');
+
+        if (!duration || duration <= 0 || timePos === undefined || timePos === null) return;
+
+        const nearEnd = duration - timePos <= EOF_WATCH_THRESHOLD_SECONDS;
+        if (!nearEnd) return;
+
+        if (!paused && !eofReached) return;
+
+        console.log('Jellyfin: Playback reached EOF (tick)');
+        reportPlaybackStopped();
+        stopProgressReporting();
+        stopPlaybackTick();
+        clearSkipSegmentState();
+        handleNoNextEpisode('eof tick');
+    }, PLAYBACK_TICK_INTERVAL_MS);
+}
+
+function stopPlaybackTick() {
+    if (playbackTickTimer) {
+        clearInterval(playbackTickTimer);
+        playbackTickTimer = null;
+    }
+}
+
 function handleNoNextEpisode(reason) {
     console.log('Jellyfin: No next episode:', reason);
-    const serverUrl = currentPlayback?.serverUrl || '';
-
     clearSkipSegmentState();
+    stopPlaybackTick();
     currentPlayback = null;
 
-    if (serverUrl) {
-        const splashUrl = `${serverUrl}/${JELLYFIN_SPLASH_NAME}`;
-        mpv.command('loadfile', [splashUrl, 'replace']);
-    } else {
-        mpv.command('loadfile', [JELLYFIN_SPLASH_URL, 'replace']);
+    isReplacingPlayback = true;
+    try {
+        core.open(JELLYFIN_SPLASH_URL);
+    } catch (error) {
+        console.error('Jellyfin: Failed to open splash with core.open', error.message || error);
+        showSidebarWithNotification();
+        sidebar.postMessage('refreshSidebar', {});
     }
 
     showSidebarWithNotification();
     sidebar.postMessage('refreshSidebar', {});
+}
+
+
+function startAutoplayTransitionTimer(playSessionId) {
+    clearAutoplayTransitionTimer();
+
+    autoplayTransitionTimer = setTimeout(() => {
+        autoplayTransitionTimer = null;
+        if (!currentPlayback) return;
+        if (currentPlayback.playSessionId !== playSessionId) return;
+        if (currentPlayback.autoplayQueued) {
+            handleNoNextEpisode('autoplay timeout');
+        }
+    }, AUTOPLAY_TRANSITION_TIMEOUT_MS);
+}
+
+function clearAutoplayTransitionTimer() {
+    if (autoplayTransitionTimer) {
+        clearTimeout(autoplayTransitionTimer);
+        autoplayTransitionTimer = null;
+    }
+}
+
+function prunePlaylistToCurrentEntry() {
+    const playlist = mpv.getNative('playlist');
+    if (!Array.isArray(playlist)) return;
+
+    const currentIndex = findCurrentPlaylistIndex(playlist);
+    if (currentIndex === -1) return;
+
+    for (let i = playlist.length - 1; i >= 0; i -= 1) {
+        if (i !== currentIndex) {
+            mpv.command('playlist-remove', [String(i)]);
+        }
+    }
+}
+
+function findCurrentPlaylistIndex(playlist) {
+    if (!Array.isArray(playlist)) return -1;
+    return playlist.findIndex(entry => entry && (entry.current || entry.playing));
+}
+
+function getItemIdFromPlaylistEntry(entry) {
+    if (!entry || !entry.filename) return '';
+    const params = parseUrlParams(entry.filename);
+    return params['_jf_itemId'] || '';
+}
+
+function queueNextEpisode(url, title) {
+    if (!currentPlayback) return;
+
+    try {
+        const playlist = mpv.getNative('playlist');
+        const currentIndex = findCurrentPlaylistIndex(playlist);
+
+        if (currentIndex !== -1) {
+            const nextEntry = playlist[currentIndex + 1];
+            const nextItemId = getItemIdFromPlaylistEntry(nextEntry);
+
+            if (nextItemId && nextItemId === currentPlayback.nextItemId) {
+                currentPlayback.autoplayQueued = true;
+                return;
+            }
+
+            for (let i = playlist.length - 1; i > currentIndex; i -= 1) {
+                mpv.command('playlist-remove', [String(i)]);
+            }
+        }
+
+        if (title) {
+            const safeTitle = String(title).replace(/[,\n\r=]/g, ' ');
+            mpv.command('loadfile', [url, 'insert-next', '-1', `force-media-title=${safeTitle}`]);
+        } else {
+            mpv.command('loadfile', [url, 'insert-next']);
+        }
+        currentPlayback.autoplayQueued = true;
+        console.log('Jellyfin: Queued next episode');
+    } catch (error) {
+        console.error('Jellyfin: Failed to queue next episode', error.message || error);
+    }
+}
+
+function requestAutoplayNextEpisode() {
+    if (!currentPlayback) return;
+
+    autoplayRequestId += 1;
+    currentPlayback.autoplayRequestId = autoplayRequestId;
+    currentPlayback.autoplayQueued = false;
+
+    sidebar.postMessage('resolveNextEpisode', {
+        requestId: autoplayRequestId,
+        itemId: currentPlayback.itemId,
+        seriesId: currentPlayback.seriesId,
+        seasonId: currentPlayback.seasonId,
+        episodeIndex: currentPlayback.episodeIndex
+    });
 }
 
 
