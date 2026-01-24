@@ -1,6 +1,6 @@
 # Jellyfin IINA Plugin
 
-This is a small side project to make watching Jellyfin content in IINA easier. It is largerly vibe coded and made for my specific setup, so it might not be the best fit for you but hopefuly someone finds it useful.
+Plugin for accessing Movies and TV series from your Jellyfin server in IINA. Displays a simplified view of your library that lets you browse and play items right from IINA. **Not affiliated with the official Jellyfin Project.**
 
 ## Installation
 
@@ -12,17 +12,16 @@ This is a small side project to make watching Jellyfin content in IINA easier. I
 ## Usage
 
 - Open the Jellyfin sidebar with Shift+J.
-- In the future you can use the Resume watching `Jellyfin.png` to skip the select video dialog faster (or, if Jellyfin is your main use case for IINA, have it autoplay when IINA opens and it will automatically pop the sidebar).
+- On next open you can use the "Resume Jellyfin.png" option in Recent Items to skip the select video dialog.
 
 ## Features
 
-- Direct stream playback from Jellyfin.
-- Library search and browsing.
-- Proper media name formatting in the window title.
+- Direct stream playback from Jellyfin. Transcoding is currently not supported.
+- Library browsing. Home screen shows Next Up and Recently Added. You can search for anything else.
 - Playback progress reporting back to the Jellyfin server.
 - Resume playback from last position.
-- Session persistence for server and login.
-- Only TV and Movie libraries are supported at the moment.
+- Auto-play next episode (can be disabled). Next episode is added to the mpv playlist for native feel and media key support.
+- Intro-skipper integration (can be disabled). Clickable Skip button shows up during Intro/Credits similarly to the web interface.
 
 ## Screenshots
 
@@ -30,10 +29,9 @@ This is a small side project to make watching Jellyfin content in IINA easier. I
 
 ![Screenshot 2](images/screenshot-2.jpg)
 
-## TODO
+## Disclaimer
 
-- Auto-play next episode (soon-ish).
-- Intro skipper (not that soon, i can't figure out how to make an overlay button clickable, please help).
+This was made primarily for me and was largely vibe coded. While this is my daily driver and I intend to maintain, it should be considered mostly feature complete as it already does everything I need.
 
 ## Attribution
 
