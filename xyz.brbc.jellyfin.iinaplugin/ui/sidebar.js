@@ -3,7 +3,7 @@
 
 // Constants
 const CLIENT_NAME = 'IINA Jellyfin Plugin';
-const CLIENT_VERSION = '1.2.0';
+const CLIENT_VERSION = '1.2.1';
 const DEVICE_NAME = 'IINA';
 const DEBUG_LOGS = false;
 const TICKS_PER_SECOND = 10000000;
