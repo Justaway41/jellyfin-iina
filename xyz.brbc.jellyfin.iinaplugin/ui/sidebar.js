@@ -6,6 +6,13 @@ const CLIENT_NAME = 'IINA Jellyfin Plugin';
 const CLIENT_VERSION = '1.2.0';
 const DEVICE_NAME = 'IINA';
 const DEBUG_LOGS = false;
+const TICKS_PER_SECOND = 10000000;
+const TICKS_PER_MINUTE = 600000000;
+const FIELDS_LIBRARY_ITEMS = 'Overview,Genres,MediaSources,UserData,RunTimeTicks,SeriesId,SeasonId';
+const FIELDS_EPISODES = 'Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+const FIELDS_HOME_ITEMS = 'Overview,UserData,RunTimeTicks,SeriesName,ProductionYear,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+const FIELDS_SEARCH = 'Overview,UserData,RunTimeTicks,SeriesName,ProductionYear,ParentIndexNumber,IndexNumber,SeriesId,SeasonId,RecursiveItemCount,ChildCount';
+const FIELDS_SEASONS = 'Overview,UserData,RunTimeTicks';
 
 function log(...args) {
     if (DEBUG_LOGS) {
@@ -70,27 +77,44 @@ function getAuthHeader() {
 // API request helper
 async function apiRequest(method, endpoint, data = null) {
     const url = `${state.serverUrl}${endpoint}`;
+    const headers = {
+        'Authorization': getAuthHeader()
+    };
+
     const options = {
         method: method,
-        headers: {
-            'Authorization': getAuthHeader(),
-            'Content-Type': 'application/json'
-        }
+        headers: headers
     };
 
     if (data && (method === 'POST' || method === 'PUT')) {
+        headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(data);
     }
 
     const response = await fetch(url, options);
+    const contentType = response.headers.get('content-type') || '';
 
     if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        let errorBody = '';
+        try {
+            errorBody = await response.text();
+        } catch (error) {
+            errorBody = '';
+        }
+        const detail = errorBody ? ` - ${errorBody.slice(0, 200)}` : '';
+        throw new Error(`API Error: ${response.status} ${endpoint}${detail}`);
     }
 
-    // Some endpoints return empty response
+    if (response.status === 204) {
+        return null;
+    }
+
+    if (contentType.includes('application/json')) {
+        return await response.json();
+    }
+
     const text = await response.text();
-    return text ? JSON.parse(text) : null;
+    return text ? text : null;
 }
 
 // DOM Elements
@@ -167,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateServerHeader(state.serverName || serverHostValue, serverHostValue);
         userName.textContent = savedSession.username;
         showBrowseView();
-        loadHome();
+        goHomeFresh('session-restore');
     } else {
         showLoginView();
     }
@@ -256,7 +280,7 @@ async function handleLogin(e) {
         updateServerHeader(serverDisplayName || serverHostValue, serverHostValue);
         userName.textContent = state.username;
         showBrowseView();
-        loadHome();
+        goHomeFresh('login');
 
 
 
@@ -301,11 +325,8 @@ function handleBack() {
         state.currentLibrary = null;
         state.currentSeries = null;
         state.currentSeason = null;
-        if (state.searchQuery) {
-            performSearch(state.searchQuery);
-        } else {
-            loadHome();
-        }
+        updateSearchState('');
+        loadHome();
     } else {
         const prev = state.breadcrumb[state.breadcrumb.length - 1];
         switch (prev.type) {
@@ -331,27 +352,65 @@ function handleRetry() {
     }
 }
 
-function handleRefresh() {
+function goHomeFresh(reason = '') {
+    state.breadcrumb = [];
+    state.currentLibrary = null;
+    state.currentSeries = null;
+    state.currentSeason = null;
+    state.lastAction = null;
     resetSearchState(false);
-    refreshSidebarContent('manual');
+    if (reason) {
+        log('Returning home:', reason);
+    }
+    loadHome();
 }
 
-async function reloadItems(breadcrumb) {
-    updateTitle(breadcrumb.name);
+function handleRefresh() {
+    goHomeFresh('home-button');
+}
+
+function buildLibraryItemsEndpoint(libraryId, collectionType) {
+    const itemType = collectionType === 'movies' ? 'Movie' : 'Series';
+    let endpoint = `/Users/${state.userId}/Items?ParentId=${libraryId}`;
+    endpoint += '&SortBy=SortName&SortOrder=Ascending';
+    endpoint += `&Fields=${FIELDS_LIBRARY_ITEMS}`;
+    endpoint += '&EnableImageTypes=Primary,Backdrop,Thumb';
+    endpoint += `&IncludeItemTypes=${itemType}`;
+    return endpoint;
+}
+
+function buildEpisodesEndpoint(seriesId, seasonId) {
+    return `/Shows/${seriesId}/Episodes?UserId=${state.userId}&SeasonId=${seasonId}` +
+        `&Fields=${FIELDS_EPISODES}`;
+}
+
+async function fetchAndRenderLibraryItems({ libraryId, libraryName, collectionType, addBreadcrumb }) {
+    updateTitle(libraryName);
     showLoading();
-    const itemType = breadcrumb.collectionType === 'movies' ? 'Movie' : 'Series';
 
     try {
-        let endpoint = `/Users/${state.userId}/Items?ParentId=${breadcrumb.id}`;
-        endpoint += '&SortBy=SortName&SortOrder=Ascending';
-        endpoint += '&Fields=Overview,Genres,MediaSources,UserData,RunTimeTicks';
-        endpoint += '&EnableImageTypes=Primary,Backdrop,Thumb';
-        endpoint += `&IncludeItemTypes=${itemType}`;
-
+        const endpoint = buildLibraryItemsEndpoint(libraryId, collectionType);
         const data = await apiRequest('GET', endpoint);
         const items = data.Items || [];
 
         hideLoading();
+        state.currentLibrary = { id: libraryId, name: libraryName, type: collectionType };
+        state.lastAction = () => fetchAndRenderLibraryItems({
+            libraryId,
+            libraryName,
+            collectionType,
+            addBreadcrumb: false
+        });
+
+        if (addBreadcrumb) {
+            const breadcrumb = { type: 'library', id: libraryId, name: libraryName, collectionType };
+            if (!state.breadcrumb.find(b => b.id === breadcrumb.id)) {
+                state.breadcrumb.push(breadcrumb);
+            }
+        }
+
+        updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || libraryName);
+
         if (items.length === 0) {
             renderEmptyState('No items found');
             return;
@@ -362,17 +421,30 @@ async function reloadItems(breadcrumb) {
     }
 }
 
-async function reloadSeasons(breadcrumb) {
-    updateTitle(breadcrumb.name);
+async function fetchAndRenderSeasons({ seriesId, seriesName, addBreadcrumb }) {
+    updateTitle(seriesName);
     showLoading();
 
     try {
         const [nextUpItem, seasons] = await Promise.all([
-            loadNextUpForSeries(breadcrumb.id),
-            fetchSeasons(breadcrumb.id)
+            loadNextUpForSeries(seriesId),
+            fetchSeasons(seriesId)
         ]);
 
         hideLoading();
+        state.currentSeries = { id: seriesId, name: seriesName };
+        state.lastAction = () => fetchAndRenderSeasons({
+            seriesId,
+            seriesName,
+            addBreadcrumb: false
+        });
+
+        if (addBreadcrumb) {
+            state.breadcrumb.push({ type: 'series', id: seriesId, name: seriesName });
+        }
+
+        updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || seriesName);
+
         if (seasons.length === 0 && !nextUpItem) {
             renderEmptyState('No seasons found');
             return;
@@ -383,16 +455,35 @@ async function reloadSeasons(breadcrumb) {
     }
 }
 
-async function reloadEpisodes(breadcrumb) {
-    updateTitle(breadcrumb.name);
+async function fetchAndRenderEpisodes({ seriesId, seasonId, seasonName, addBreadcrumb }) {
+    updateTitle(seasonName);
     showLoading();
 
     try {
-        const endpoint = `/Shows/${breadcrumb.seriesId}/Episodes?UserId=${state.userId}&SeasonId=${breadcrumb.id}&Fields=Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber`;
+        const endpoint = buildEpisodesEndpoint(seriesId, seasonId);
         const data = await apiRequest('GET', endpoint);
         const episodes = data.Items || [];
 
         hideLoading();
+        state.currentSeason = { id: seasonId, name: seasonName };
+        state.lastAction = () => fetchAndRenderEpisodes({
+            seriesId,
+            seasonId,
+            seasonName,
+            addBreadcrumb: false
+        });
+
+        if (addBreadcrumb) {
+            state.breadcrumb.push({
+                type: 'season',
+                id: seasonId,
+                seriesId: seriesId,
+                name: seasonName
+            });
+        }
+
+        updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || seasonName);
+
         if (episodes.length === 0) {
             renderEmptyState('No episodes found');
             return;
@@ -401,6 +492,32 @@ async function reloadEpisodes(breadcrumb) {
     } catch (error) {
         showError(error.message || 'Failed to load episodes');
     }
+}
+
+async function reloadItems(breadcrumb) {
+    await fetchAndRenderLibraryItems({
+        libraryId: breadcrumb.id,
+        libraryName: breadcrumb.name,
+        collectionType: breadcrumb.collectionType,
+        addBreadcrumb: false
+    });
+}
+
+async function reloadSeasons(breadcrumb) {
+    await fetchAndRenderSeasons({
+        seriesId: breadcrumb.id,
+        seriesName: breadcrumb.name,
+        addBreadcrumb: false
+    });
+}
+
+async function reloadEpisodes(breadcrumb) {
+    await fetchAndRenderEpisodes({
+        seriesId: breadcrumb.seriesId,
+        seasonId: breadcrumb.id,
+        seasonName: breadcrumb.name,
+        addBreadcrumb: false
+    });
 }
 
 // View switching
@@ -413,7 +530,6 @@ function showBrowseView() {
     loginView.classList.add('hidden');
     browseView.classList.remove('hidden');
     resetSearchState(false);
-    refreshSidebarContent('show');
 }
 
 function updateServerHeader(displayName, hostName) {
@@ -509,20 +625,20 @@ async function loadHomeItems(limit = 5) {
 
 async function loadLatestItems(itemType, limit) {
     const endpoint = `/Users/${state.userId}/Items/Latest?IncludeItemTypes=${itemType}&Limit=${limit}` +
-        '&Fields=Overview,UserData,RunTimeTicks,SeriesName,ProductionYear,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+        `&Fields=${FIELDS_HOME_ITEMS}`;
     const data = await apiRequest('GET', endpoint);
     return (data || []).filter(item => isSupportedItem(item));
 }
 
 async function loadResumeItems() {
     const endpoint = `/Users/${state.userId}/Items/Resume?Limit=10&MediaTypes=Video` +
-        '&Fields=Overview,UserData,RunTimeTicks,SeriesName,ProductionYear,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+        `&Fields=${FIELDS_HOME_ITEMS}`;
     const data = await apiRequest('GET', endpoint);
     return (data.Items || []).filter(item => isSupportedItem(item));
 }
 
 async function loadNextUpItems() {
-    const endpoint = `/Shows/NextUp?UserId=${state.userId}&Limit=10&Fields=Overview,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId`;
+    const endpoint = `/Shows/NextUp?UserId=${state.userId}&Limit=10&Fields=${FIELDS_HOME_ITEMS}`;
     const data = await apiRequest('GET', endpoint);
     return (data.Items || []).filter(item => isSupportedItem(item));
 }
@@ -559,7 +675,7 @@ function buildStreamUrl(item, context = {}) {
     const runtimeTicks = item.RunTimeTicks || context.runtimeTicks || 0;
     const mediaSourceId = context.mediaSourceId || item.MediaSources?.[0]?.Id || itemId;
 
-        const urlParams = new URLSearchParams({
+    const urlParams = new URLSearchParams({
         Static: 'true',
         mediaSourceId: mediaSourceId,
         playSessionId: context.playSessionId || '',
@@ -569,7 +685,6 @@ function buildStreamUrl(item, context = {}) {
         _jf_deviceId: getDeviceId(),
         _jf_userId: state.userId
     });
-
 
     if (context.seriesId) {
         urlParams.set('_jf_seriesId', context.seriesId);
@@ -588,100 +703,34 @@ function getSearchEndpoint(query) {
     return `/Items?SearchTerm=${encodeURIComponent(query)}` +
         `&UserId=${state.userId}` +
         '&IncludeItemTypes=Movie,Series,Episode' +
-        '&Fields=Overview,UserData,RunTimeTicks,SeriesName,ProductionYear,ParentIndexNumber,IndexNumber,SeriesId,SeasonId,RecursiveItemCount,ChildCount' +
+        `&Fields=${FIELDS_SEARCH}` +
         '&Recursive=true&Limit=20&SortBy=SortName&SortOrder=Ascending';
 }
 
 async function loadItems(libraryId, libraryName, collectionType) {
-    state.currentLibrary = { id: libraryId, name: libraryName, type: collectionType };
-    state.lastAction = () => loadItems(libraryId, libraryName, collectionType);
-    updateTitle(libraryName);
-    showLoading();
-
-    const itemType = collectionType === 'movies' ? 'Movie' : 'Series';
-    const breadcrumb = { type: 'library', id: libraryId, name: libraryName, collectionType };
-
-    try {
-        let endpoint = `/Users/${state.userId}/Items?ParentId=${libraryId}`;
-        endpoint += '&SortBy=SortName&SortOrder=Ascending';
-        endpoint += '&Fields=Overview,Genres,MediaSources,UserData,RunTimeTicks,SeriesId,SeasonId';
-        endpoint += '&EnableImageTypes=Thumb';
-        endpoint += `&IncludeItemTypes=${itemType}`;
-
-        const data = await apiRequest('GET', endpoint);
-        const items = data.Items || [];
-
-        hideLoading();
-        if (!state.breadcrumb.find(b => b.id === breadcrumb.id)) {
-            state.breadcrumb.push(breadcrumb);
-        }
-        updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || 'Items');
-
-        if (items.length === 0) {
-            renderEmptyState('No items found');
-            return;
-        }
-        renderListCards(items, { showSeriesName: false });
-    } catch (error) {
-        showError(error.message || 'Failed to load items');
-    }
+    await fetchAndRenderLibraryItems({
+        libraryId,
+        libraryName,
+        collectionType,
+        addBreadcrumb: true
+    });
 }
 
 async function loadSeasons(seriesId, seriesName) {
-    state.currentSeries = { id: seriesId, name: seriesName };
-    state.lastAction = () => loadSeasons(seriesId, seriesName);
-    updateTitle(seriesName);
-    showLoading();
-
-    try {
-        const [nextUpItem, seasons] = await Promise.all([
-            loadNextUpForSeries(seriesId),
-            fetchSeasons(seriesId)
-        ]);
-
-        hideLoading();
-        state.breadcrumb.push({ type: 'series', id: seriesId, name: seriesName });
-        updateTitle(seriesName);
-
-        if (seasons.length === 0 && !nextUpItem) {
-            renderEmptyState('No seasons found');
-            return;
-        }
-
-        renderSeriesOverview(nextUpItem, seasons);
-    } catch (error) {
-        showError(error.message || 'Failed to load seasons');
-    }
+    await fetchAndRenderSeasons({
+        seriesId,
+        seriesName,
+        addBreadcrumb: true
+    });
 }
 
 async function loadEpisodes(seriesId, seasonId, seasonName) {
-    state.currentSeason = { id: seasonId, name: seasonName };
-    state.lastAction = () => loadEpisodes(seriesId, seasonId, seasonName);
-    updateTitle(seasonName);
-    showLoading();
-
-    try {
-        const endpoint = `/Shows/${seriesId}/Episodes?UserId=${state.userId}&SeasonId=${seasonId}&Fields=Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId`;
-        const data = await apiRequest('GET', endpoint);
-        const episodes = data.Items || [];
-
-        hideLoading();
-        state.breadcrumb.push({
-            type: 'season',
-            id: seasonId,
-            seriesId: state.currentSeries?.id,
-            name: seasonName
-        });
-        updateTitle(seasonName);
-
-        if (episodes.length === 0) {
-            renderEmptyState('No episodes found');
-            return;
-        }
-        renderListCards(episodes, { showSeriesName: false, showEpisodeNumber: true, useEpisodeThumbnail: true });
-    } catch (error) {
-        showError(error.message || 'Failed to load episodes');
-    }
+    await fetchAndRenderEpisodes({
+        seriesId,
+        seasonId,
+        seasonName,
+        addBreadcrumb: true
+    });
 }
 
 // Render functions
@@ -777,14 +826,14 @@ function buildSeasonCard(season) {
 }
 
 async function fetchSeasons(seriesId) {
-    const endpoint = `/Shows/${seriesId}/Seasons?UserId=${state.userId}&Fields=Overview,UserData,RunTimeTicks`;
+    const endpoint = `/Shows/${seriesId}/Seasons?UserId=${state.userId}&Fields=${FIELDS_SEASONS}`;
     const data = await apiRequest('GET', endpoint);
     return data.Items || [];
 }
 
 async function loadNextUpForSeries(seriesId) {
     try {
-        const endpoint = `/Shows/NextUp?UserId=${state.userId}&SeriesId=${seriesId}&Limit=1&Fields=Overview,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId`;
+        const endpoint = `/Shows/NextUp?UserId=${state.userId}&SeriesId=${seriesId}&Limit=1&Fields=${FIELDS_HOME_ITEMS}`;
         const data = await apiRequest('GET', endpoint);
         const items = (data.Items || []).filter(item => item.Type === 'Episode');
         return items[0] || null;
@@ -889,22 +938,23 @@ function buildListCard(item, options) {
     const fallbackThumbnailUrl = useEpisodeFallback
         ? getImageUrl(seriesId, 'Thumb', 160)
         : (useBackdropFallback ? getImageUrl(item.Id, 'Backdrop', 320) : '');
+    const escapedName = escapeHtml(item.Name);
 
     return `
-        <div class="list-card" data-id="${item.Id}" data-name="${escapeHtml(item.Name)}" data-type="${item.Type}" data-resume="${item.UserData?.PlaybackPositionTicks || 0}" data-series-id="${seriesId}" data-season-id="${seasonId}" data-episode-index="${episodeIndex}" data-clickable tabindex="0" role="button">
+        <div class="list-card" data-id="${item.Id}" data-name="${escapedName}" data-type="${item.Type}" data-resume="${item.UserData?.PlaybackPositionTicks || 0}" data-series-id="${seriesId}" data-season-id="${seasonId}" data-episode-index="${episodeIndex}" data-clickable tabindex="0" role="button">
             <div class="thumb-wrapper">
                 <img class="list-thumb"
                      src="${thumbnailUrl}"
                      data-fallback="${fallbackThumbnailUrl}"
                      data-item-id="${item.Id}"
                      data-type="${item.Type}"
-                     alt="${escapeHtml(item.Name)}"
+                     alt="${escapedName}"
                      loading="lazy">
                 <div class="play-overlay">▶</div>
                 ${progressBar}
             </div>
             <div class="list-body">
-                <div class="list-title">${escapeHtml(item.Name)}</div>
+                <div class="list-title">${escapedName}</div>
                 <div class="list-meta">${metadata}</div>
             </div>
             ${durationLabel}
@@ -1027,7 +1077,7 @@ function handleImageFallback(imageElement) {
 
 function formatRuntime(ticks) {
     if (!ticks) return '';
-    const totalMinutes = Math.floor(ticks / 600000000);
+    const totalMinutes = Math.floor(ticks / TICKS_PER_MINUTE);
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
 
@@ -1044,10 +1094,13 @@ function formatEpisodeNumber(season, episode) {
 }
 
 function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function normalizeQuery(value) {
@@ -1246,7 +1299,7 @@ async function playItem(itemId, name, resumePositionTicks = 0, context = {}, pre
         });
 
         // Convert ticks to seconds for resume position
-        const resumeSeconds = resumePositionTicks > 0 ? Math.floor(resumePositionTicks / 10000000) : 0;
+        const resumeSeconds = resumePositionTicks > 0 ? Math.floor(resumePositionTicks / TICKS_PER_SECOND) : 0;
 
         // Use IINA URL scheme to trigger playback directly
         // This bypasses the broken message passing between sidebar and main.js
@@ -1255,7 +1308,7 @@ async function playItem(itemId, name, resumePositionTicks = 0, context = {}, pre
         console.error('Failed to get playback info:', error);
         // Fallback to direct download if playback info fails
         const streamUrl = `${state.serverUrl}/Items/${itemId}/Download?api_key=${state.accessToken}`;
-        const resumeSeconds = resumePositionTicks > 0 ? Math.floor(resumePositionTicks / 10000000) : 0;
+        const resumeSeconds = resumePositionTicks > 0 ? Math.floor(resumePositionTicks / TICKS_PER_SECOND) : 0;
 
         openInIINA(streamUrl, resumeSeconds);
     }
@@ -1325,7 +1378,7 @@ iina.onMessage('getMediaSegments', async (data) => {
 });
 
 iina.onMessage('refreshSidebar', () => {
-    refreshSidebarContent('show');
+    goHomeFresh('refreshSidebar');
 });
 
 iina.onMessage('resolveNextEpisode', async (data) => {
@@ -1384,7 +1437,7 @@ iina.onMessage('resolveNextEpisode', async (data) => {
 async function resolveSequentialNextEpisode(seriesId, seasonId, episodeIndex) {
     const episodesEndpoint = `/Shows/${seriesId}/Episodes?UserId=${state.userId}`
         + `&SeasonId=${seasonId}`
-        + '&Fields=Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+        + `&Fields=${FIELDS_EPISODES}`;
     const episodesResponse = await apiRequest('GET', episodesEndpoint);
     const episodes = (episodesResponse?.Items || []).filter(item => item.Type === 'Episode');
 
@@ -1400,7 +1453,7 @@ async function resolveSequentialNextEpisode(seriesId, seasonId, episodeIndex) {
 
     const nextSeasonEpisodesEndpoint = `/Shows/${seriesId}/Episodes?UserId=${state.userId}`
         + `&SeasonId=${nextSeason.Id}`
-        + '&Fields=Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId';
+        + `&Fields=${FIELDS_EPISODES}`;
     const nextSeasonResponse = await apiRequest('GET', nextSeasonEpisodesEndpoint);
     const nextSeasonEpisodes = (nextSeasonResponse?.Items || []).filter(item => item.Type === 'Episode');
 

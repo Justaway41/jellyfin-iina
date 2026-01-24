@@ -4,12 +4,13 @@ const { console, core, event, sidebar, mpv, global, overlay, preferences } = iin
 
 const SHOW_SIDEBAR_DELAY_MS = 300;
 const JELLYFIN_SPLASH_URL = '~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin.png';
+const TICKS_PER_SECOND = 10000000;
+const RESUME_SEEK_DELAY_MS = 1000;
 
 console.log('Jellyfin: Plugin loaded');
 
 // Playback reporting state
 let currentPlayback = null;
-let progressReportTimer = null;
 let pendingWindowTitle = null;
 let autoplayRequestId = 0;
 let autoplayTransitionTimer = null;
@@ -77,27 +78,36 @@ function showSidebarWithNotification() {
     global.postMessage('sidebarShown', {});
 }
 
+function showSidebarWithDelay() {
+    setTimeout(() => {
+        showSidebarWithNotification();
+    }, SHOW_SIDEBAR_DELAY_MS);
+}
+
 function hideSidebar() {
     sidebar.hide();
     sidebarVisible = false;
 }
 
+function toggleSidebarFromHotkey() {
+    if (!windowReady) {
+        pendingShowSidebar = true;
+        return;
+    }
+
+    if (getSidebarVisibility()) {
+        console.log('Jellyfin: Sidebar already open, hiding it');
+        hideSidebar();
+        return;
+    }
+
+    showSidebarWithDelay();
+}
+
 // Listen for global message to show sidebar (from menu item / hotkey in global.js)
 global.onMessage('showJellyfinSidebar', () => {
     console.log('Jellyfin: Received showJellyfinSidebar message');
-    if (windowReady) {
-        if (getSidebarVisibility()) {
-            console.log('Jellyfin: Sidebar already open, hiding it');
-            hideSidebar();
-            return;
-        }
-
-        setTimeout(() => {
-            showSidebarWithNotification();
-        }, SHOW_SIDEBAR_DELAY_MS);
-    } else {
-        pendingShowSidebar = true;
-    }
+    toggleSidebarFromHotkey();
 });
 
 // Wait for window to be ready before loading sidebar
@@ -134,7 +144,7 @@ event.on('iina.window-loaded', () => {
                 console.log('Jellyfin: Will seek to', data.resumeSeconds, 'seconds');
                 setTimeout(() => {
                     mpv.set('time-pos', data.resumeSeconds);
-                }, 1000);
+                }, RESUME_SEEK_DELAY_MS);
             }
         }
     });
@@ -174,9 +184,7 @@ event.on('iina.window-loaded', () => {
     // Show sidebar if it was requested before window was ready
     if (pendingShowSidebar) {
         console.log('Jellyfin: Showing sidebar (pending request)');
-        setTimeout(() => {
-            showSidebarWithNotification();
-        }, SHOW_SIDEBAR_DELAY_MS);
+        showSidebarWithDelay();
         pendingShowSidebar = false;
     }
 
@@ -213,6 +221,71 @@ function getUrlOrigin(url) {
     return url.substring(0, pathStart);
 }
 
+function parseEpisodeIndex(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
+function buildPlaybackContextFromUrl(url) {
+    const params = parseUrlParams(url);
+    const playSessionId = params['playSessionId'];
+    if (!playSessionId) return null;
+
+    return {
+        itemId: params['_jf_itemId'],
+        mediaSourceId: params['mediaSourceId'],
+        playSessionId: playSessionId,
+        accessToken: params['api_key'],
+        deviceId: params['_jf_deviceId'],
+        serverUrl: getUrlOrigin(url),
+        runtimeTicks: Number.parseInt(params['_jf_runtimeTicks'], 10) || 0,
+        seriesId: params['_jf_seriesId'] || '',
+        seasonId: params['_jf_seasonId'] || '',
+        episodeIndex: parseEpisodeIndex(params['_jf_episodeIndex']),
+        autoplayQueued: false,
+        autoplayRequestId: 0,
+        nextItemId: '',
+        segments: []
+    };
+}
+
+function startPlaybackSession(playback) {
+    console.log('Jellyfin: Detected Jellyfin stream, starting playback reporting');
+    clearSkipSegmentState();
+    isReplacingPlayback = false;
+
+    currentPlayback = {
+        ...playback,
+        isEpisode: Boolean(playback.seriesId || playback.episodeIndex !== null)
+    };
+
+    lastKnownPositionTicks = 0;
+    playbackTickCount = 0;
+    startPlaybackTick();
+
+    if (pendingWindowTitle) {
+        applyWindowTitle(pendingWindowTitle);
+        pendingWindowTitle = null;
+    }
+
+    reportPlaybackStart();
+
+    skipOverlayEnabled = isSkipSegmentsEnabled();
+    startSkipSegmentPolling();
+    if (skipOverlayEnabled) {
+        requestMediaSegments();
+    }
+
+    if (shouldResetPlaylistOnNextLoad) {
+        prunePlaylistToCurrentEntry();
+        shouldResetPlaylistOnNextLoad = false;
+    }
+    if (currentPlayback.isEpisode && isAutoplayNextEnabled()) {
+        requestAutoplayNextEpisode();
+    }
+}
+
 // Detect Jellyfin streams and set up playback reporting
 event.on('mpv.file-loaded', () => {
     const url = mpv.getString('path');
@@ -228,66 +301,14 @@ event.on('mpv.file-loaded', () => {
         return;
     }
 
-
     // Only process Jellyfin stream URLs
     if (!url.includes('/Videos/') || !url.includes('playSessionId=')) return;
 
     try {
-        const params = parseUrlParams(url);
-        const playSessionId = params['playSessionId'];
+        const playback = buildPlaybackContextFromUrl(url);
+        if (!playback) return;
 
-        if (playSessionId) {
-            console.log('Jellyfin: Detected Jellyfin stream, starting playback reporting');
-            clearSkipSegmentState();
-            isReplacingPlayback = false;
-
-            const episodeIndexValue = params['_jf_episodeIndex'];
-            const parsedEpisodeIndex = episodeIndexValue !== undefined && episodeIndexValue !== null && episodeIndexValue !== ''
-                ? parseInt(episodeIndexValue, 10)
-                : null;
-            const episodeIndex = Number.isNaN(parsedEpisodeIndex) ? null : parsedEpisodeIndex;
-
-            currentPlayback = {
-                itemId: params['_jf_itemId'],
-                mediaSourceId: params['mediaSourceId'],
-                playSessionId: playSessionId,
-                accessToken: params['api_key'],
-                deviceId: params['_jf_deviceId'],
-                serverUrl: getUrlOrigin(url),
-                runtimeTicks: parseInt(params['_jf_runtimeTicks']) || 0,
-                seriesId: params['_jf_seriesId'] || '',
-                seasonId: params['_jf_seasonId'] || '',
-                episodeIndex: episodeIndex,
-                isEpisode: Boolean(params['_jf_seriesId'] || episodeIndex !== null),
-                autoplayQueued: false,
-                autoplayRequestId: 0,
-                nextItemId: '',
-                segments: []
-            };
-            lastKnownPositionTicks = 0;
-            playbackTickCount = 0;
-            startPlaybackTick();
-            if (pendingWindowTitle) {
-                applyWindowTitle(pendingWindowTitle);
-                pendingWindowTitle = null;
-            }
-            reportPlaybackStart();
-            startProgressReporting();
-
-            skipOverlayEnabled = isSkipSegmentsEnabled();
-            startSkipSegmentPolling();
-            if (skipOverlayEnabled) {
-                requestMediaSegments();
-            }
-
-            if (shouldResetPlaylistOnNextLoad) {
-                prunePlaylistToCurrentEntry();
-                shouldResetPlaylistOnNextLoad = false;
-            }
-            if (currentPlayback.isEpisode && isAutoplayNextEnabled()) {
-                requestAutoplayNextEpisode();
-            }
-        }
+        startPlaybackSession(playback);
     } catch (e) {
         console.log('Jellyfin: URL parse error:', e.message || e);
     }
@@ -312,7 +333,6 @@ event.on('mpv.end-file', () => {
 
     console.log('Jellyfin: Playback ended');
     reportPlaybackStopped();
-    stopProgressReporting();
     stopPlaybackTick();
     clearSkipSegmentState();
     handleNoNextEpisode('end of playback');
@@ -330,7 +350,6 @@ function handleShutdown(reason) {
     if (!currentPlayback) return;
     console.log('Jellyfin: Shutdown detected (' + reason + '), reporting stop');
     reportPlaybackStopped();
-    stopProgressReporting();
     clearSkipSegmentState();
 }
 
@@ -348,7 +367,7 @@ event.on('iina.application-will-terminate', () => {
 // This bypasses ATS restrictions that block http.post() for HTTP URLs
 
 function getPositionTicks() {
-    return Math.floor((mpv.getNumber('time-pos') || 0) * 10000000);
+    return Math.floor((mpv.getNumber('time-pos') || 0) * TICKS_PER_SECOND);
 }
 
 function updateLastKnownPosition() {
@@ -378,7 +397,7 @@ function shouldShowSkipOverlay(segment) {
 }
 
 function normalizeSegments(segments, playback) {
-    const runtimeSeconds = playback?.runtimeTicks ? playback.runtimeTicks / 10000000 : 0;
+    const runtimeSeconds = playback?.runtimeTicks ? playback.runtimeTicks / TICKS_PER_SECOND : 0;
     const fallbackDuration = core.status.duration;
     const resolvedRuntime = runtimeSeconds || (typeof fallbackDuration === 'number' ? fallbackDuration : 0);
 
@@ -386,8 +405,8 @@ function normalizeSegments(segments, playback) {
         const type = segment.type;
         const hasStart = segment.startTicks !== undefined && segment.startTicks !== null;
         const hasEnd = segment.endTicks !== undefined && segment.endTicks !== null;
-        let startSeconds = hasStart ? segment.startTicks / 10000000 : null;
-        let endSeconds = hasEnd ? segment.endTicks / 10000000 : null;
+        let startSeconds = hasStart ? segment.startTicks / TICKS_PER_SECOND : null;
+        let endSeconds = hasEnd ? segment.endTicks / TICKS_PER_SECOND : null;
 
         if (type === 'Intro' && startSeconds === null && endSeconds !== null) {
             startSeconds = 0;
@@ -572,7 +591,7 @@ function reportPlaybackStopped() {
     if (!currentPlayback) return;
     const positionTicks = getPositionTicks();
     const resolvedTicks = positionTicks || lastKnownPositionTicks || 0;
-    console.log('Jellyfin: Reporting playback stopped at position:', resolvedTicks / 10000000);
+    console.log('Jellyfin: Reporting playback stopped at position:', resolvedTicks / TICKS_PER_SECOND);
 
     sidebar.postMessage('reportPlayback', {
         endpoint: '/Sessions/Playing/Stopped',
@@ -583,21 +602,6 @@ function reportPlaybackStopped() {
             PositionTicks: resolvedTicks
         }
     });
-}
-
-function startProgressReporting() {
-    stopProgressReporting();
-    progressReportTimer = setInterval(() => {
-        updateLastKnownPosition();
-        reportPlaybackProgress(mpv.getFlag('pause'));
-    }, PROGRESS_REPORT_INTERVAL);
-}
-
-function stopProgressReporting() {
-    if (progressReportTimer) {
-        clearInterval(progressReportTimer);
-        progressReportTimer = null;
-    }
 }
 
 function startPlaybackTick() {
@@ -630,7 +634,6 @@ function startPlaybackTick() {
 
         console.log('Jellyfin: Playback reached EOF (tick)');
         reportPlaybackStopped();
-        stopProgressReporting();
         stopPlaybackTick();
         clearSkipSegmentState();
         handleNoNextEpisode('eof tick');
@@ -655,8 +658,6 @@ function handleNoNextEpisode(reason) {
         core.open(JELLYFIN_SPLASH_URL);
     } catch (error) {
         console.error('Jellyfin: Failed to open splash with core.open', error.message || error);
-        showSidebarWithNotification();
-        sidebar.postMessage('refreshSidebar', {});
     }
 
     showSidebarWithNotification();
