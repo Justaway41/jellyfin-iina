@@ -1,0 +1,16 @@
+{
+  "name": "jellyfin-iina",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.plugin.json && tsc --noEmit -p tsconfig.ui.json",
+    "build": "bun run build:plugin && bun run build:ui",
+    "build:plugin": "bun build src/plugin/main.ts src/plugin/global.ts --outdir xyz.brbc.jellyfin.iinaplugin/dist --target=browser --format=iife",
+    "build:ui": "bun build src/ui/sidebar.ts --outdir xyz.brbc.jellyfin.iinaplugin/ui/dist --target=browser --format=iife",
+    "clean": "rm -rf xyz.brbc.jellyfin.iinaplugin/dist xyz.brbc.jellyfin.iinaplugin/ui/dist"
+  },
+  "devDependencies": {
+    "@jellyfin/sdk": "^0.13.0",
+    "iina-plugin-definition": "^0.99.3",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,142 @@
+import type {
+    JellyfinAuthenticationResult,
+    JellyfinBaseItem,
+    JellyfinPlaybackInfoResponse,
+    JellyfinPublicSystemInfo
+} from "../shared/jellyfin";
+
+import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME, ITEM_DETAILS_FIELDS } from "./constants";
+import { state } from "./state";
+import { getDeviceId } from "./storage";
+import { normalizeServerUrl } from "./utils";
+
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+function buildAuthHeader(accessToken: string): string {
+    const parts = [
+        `Client="${CLIENT_NAME}"`,
+        `Device="${DEVICE_NAME}"`,
+        `DeviceId="${getDeviceId()}"`,
+        `Version="${CLIENT_VERSION}"`
+    ];
+
+    if (accessToken) {
+        parts.push(`Token="${accessToken}"`);
+    }
+
+    return `MediaBrowser ${parts.join(", ")}`;
+}
+
+export async function authenticateUser(
+    serverUrl: string,
+    username: string,
+    password: string
+): Promise<JellyfinAuthenticationResult> {
+    const url = `${normalizeServerUrl(serverUrl)}/Users/AuthenticateByName`;
+    const response = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: buildAuthHeader("")
+        },
+        body: JSON.stringify({
+            Username: username,
+            Pw: password
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error("Authentication failed. Check your credentials.");
+    }
+
+    return await response.json();
+}
+
+export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?: unknown): Promise<T> {
+    const baseUrl = normalizeServerUrl(state.serverUrl);
+    const url = `${baseUrl}${endpoint}`;
+    const headers: Record<string, string> = {
+        Authorization: buildAuthHeader(state.accessToken)
+    };
+
+    const options: RequestInit = {
+        method: method,
+        headers: headers
+    };
+
+    if (data && (method === "POST" || method === "PUT")) {
+        headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(url, options);
+    const contentType = response.headers.get("content-type") || "";
+
+    if (!response.ok) {
+        let errorBody = "";
+        try {
+            errorBody = await response.text();
+        } catch (error) {
+            errorBody = "";
+        }
+        const detail = errorBody ? ` - ${errorBody.slice(0, 200)}` : "";
+        throw new Error(`API Error: ${response.status} ${endpoint}${detail}`);
+    }
+
+    if (response.status === 204) {
+        return null as T;
+    }
+
+    if (contentType.includes("application/json")) {
+        return await response.json();
+    }
+
+    const text = await response.text();
+    return (text ? text : null) as T;
+}
+
+export async function fetchServerName(): Promise<string> {
+    try {
+        const systemInfo = await apiRequest<JellyfinPublicSystemInfo>("GET", "/System/Info/Public");
+        return systemInfo?.ServerName || "";
+    } catch (error) {
+        console.error("Failed to fetch server name:", error);
+        return "";
+    }
+}
+
+export async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem | null> {
+    const endpoint = `/Users/${state.userId}/Items/${itemId}?Fields=${ITEM_DETAILS_FIELDS}`;
+    return await apiRequest<JellyfinBaseItem>("GET", endpoint);
+}
+
+export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse> {
+    return await apiRequest<JellyfinPlaybackInfoResponse>(
+        "POST",
+        `/Items/${itemId}/PlaybackInfo?UserId=${state.userId}`,
+        {
+            DeviceProfile: getDeviceProfile()
+        }
+    );
+}
+
+export function getDeviceProfile() {
+    return {
+        MaxStreamingBitrate: 120000000,
+        MaxStaticBitrate: 100000000,
+        MusicStreamingTranscodingBitrate: 384000,
+        DirectPlayProfiles: [
+            { Container: "mp4,m4v,mkv,webm,avi,mov", Type: "Video" },
+            { Container: "mp3,flac,aac,m4a,ogg,opus,wav", Type: "Audio" }
+        ],
+        TranscodingProfiles: [],
+        ContainerProfiles: [],
+        CodecProfiles: [],
+        SubtitleProfiles: [
+            { Format: "srt", Method: "External" },
+            { Format: "ass", Method: "External" },
+            { Format: "ssa", Method: "External" },
+            { Format: "vtt", Method: "External" }
+        ]
+    };
+}

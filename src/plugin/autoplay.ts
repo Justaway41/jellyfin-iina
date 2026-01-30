@@ -1,0 +1,416 @@
+import type { JellyfinBaseItem, JellyfinBaseItemQuery, JellyfinPlaybackInfoResponse } from "../shared/jellyfin";
+
+import { AUTOPLAY_NEXT_PREF_KEY, FIELDS_EPISODES, FIELDS_SEASONS, ITEM_DETAILS_FIELDS } from "./constants";
+import { requestJson } from "./http";
+import { getAuthState, getCurrentPlayback } from "./state";
+import { buildQueryString, formatError, sanitizeMediaTitle } from "./utils";
+
+const { console, mpv, preferences } = iina;
+
+let autoplayRequestCounter = 0;
+
+function isAutoplayNextEnabled(): boolean {
+    const value = preferences.get(AUTOPLAY_NEXT_PREF_KEY);
+    if (value === undefined || value === null) {
+        return true;
+    }
+    return Boolean(value);
+}
+
+function getUserId(): string {
+    const playback = getCurrentPlayback();
+    if (playback?.userId) {
+        return playback.userId;
+    }
+    const authState = getAuthState();
+    return authState?.userId || "";
+}
+
+function getHttpContext() {
+    const playback = getCurrentPlayback();
+    if (!playback) {
+        return null;
+    }
+
+    const authState = getAuthState();
+    const serverUrl = playback.serverUrl || authState?.serverUrl || "";
+    const accessToken = playback.accessToken || authState?.accessToken || "";
+    const deviceId = playback.deviceId || authState?.deviceId || "";
+    if (!serverUrl || !accessToken || !deviceId) {
+        return null;
+    }
+    return {
+        serverUrl: serverUrl,
+        accessToken: accessToken,
+        deviceId: deviceId
+    };
+}
+
+function buildStreamUrl(
+    serverUrl: string,
+    accessToken: string,
+    itemId: string,
+    params: Record<string, string | number | boolean | null | undefined>
+): string {
+    const queryString = buildQueryString({
+        Static: "true",
+        api_key: accessToken,
+        _jf_itemId: itemId,
+        ...params
+    });
+    return `${serverUrl}/Videos/${itemId}/stream?${queryString}`;
+}
+
+function buildWindowTitle(item: JellyfinBaseItem | null, fallbackName: string): string {
+    if (!item) {
+        return fallbackName || "";
+    }
+
+    const name = item.Name || fallbackName || "";
+    const type = item.Type;
+
+    if (type === "Episode") {
+        const seriesName = item.SeriesName || "";
+        const seasonNumber = item.ParentIndexNumber;
+        const episodeNumber = item.IndexNumber;
+        const seasonLabel = seasonNumber !== null && seasonNumber !== undefined
+            ? String(seasonNumber).padStart(2, "0")
+            : "00";
+        const episodeLabel = episodeNumber !== null && episodeNumber !== undefined
+            ? String(episodeNumber).padStart(2, "0")
+            : "00";
+        const titleParts = [seriesName, `S${seasonLabel}E${episodeLabel}`];
+        if (name) {
+            titleParts.push(name);
+        }
+        return titleParts.filter(Boolean).join(" • ");
+    }
+
+    if (type === "Movie") {
+        const year = item.ProductionYear ? ` (${item.ProductionYear})` : "";
+        return `${name}${year}`;
+    }
+
+    return name;
+}
+
+function getDeviceProfile() {
+    return {
+        MaxStreamingBitrate: 120000000,
+        MaxStaticBitrate: 100000000,
+        MusicStreamingTranscodingBitrate: 384000,
+        DirectPlayProfiles: [
+            { Container: "mp4,m4v,mkv,webm,avi,mov", Type: "Video" },
+            { Container: "mp3,flac,aac,m4a,ogg,opus,wav", Type: "Audio" }
+        ],
+        TranscodingProfiles: [],
+        ContainerProfiles: [],
+        CodecProfiles: [],
+        SubtitleProfiles: [
+            { Format: "srt", Method: "External" },
+            { Format: "ass", Method: "External" },
+            { Format: "ssa", Method: "External" },
+            { Format: "vtt", Method: "External" }
+        ]
+    };
+}
+
+function getPlaybackItemIdFromPlaylistEntry(entry: { filename?: string } | null): string {
+    if (!entry || !entry.filename) {
+        return "";
+    }
+    const queryStart = entry.filename.indexOf("?");
+    if (queryStart === -1) {
+        return "";
+    }
+    const params = entry.filename.substring(queryStart + 1).split("&");
+    for (const pair of params) {
+        const [key, value] = pair.split("=");
+        if (key === "_jf_itemId" && value) {
+            return decodeURIComponent(value);
+        }
+    }
+    return "";
+}
+
+function findCurrentPlaylistIndex(playlist: { current?: boolean; playing?: boolean }[]): number {
+    if (!Array.isArray(playlist)) {
+        return -1;
+    }
+    return playlist.findIndex((entry) => entry && (entry.current || entry.playing));
+}
+
+function prunePlaylistToCurrentEntry(): void {
+    const playlist = mpv.getNative<{ filename: string; current?: boolean; playing?: boolean }[]>("playlist");
+    if (!Array.isArray(playlist)) {
+        return;
+    }
+
+    const currentIndex = findCurrentPlaylistIndex(playlist);
+    if (currentIndex === -1) {
+        return;
+    }
+
+    for (let i = playlist.length - 1; i >= 0; i -= 1) {
+        if (i !== currentIndex) {
+            mpv.command("playlist-remove", [String(i)]);
+        }
+    }
+}
+
+function queueNextEpisode(url: string, title: string): void {
+    const playback = getCurrentPlayback();
+    if (!playback) {
+        return;
+    }
+
+    try {
+        const playlist = mpv.getNative<{ filename: string; current?: boolean; playing?: boolean }[]>("playlist");
+        const currentIndex = findCurrentPlaylistIndex(playlist || []);
+
+        if (currentIndex !== -1 && playlist) {
+            const nextEntry = playlist[currentIndex + 1];
+            const nextItemId = getPlaybackItemIdFromPlaylistEntry(nextEntry);
+
+            if (nextItemId && nextItemId === playback.nextItemId) {
+                playback.autoplayQueued = true;
+                return;
+            }
+
+            for (let i = playlist.length - 1; i > currentIndex; i -= 1) {
+                mpv.command("playlist-remove", [String(i)]);
+            }
+        }
+
+        if (title) {
+            const safeTitle = sanitizeMediaTitle(title);
+            mpv.command("loadfile", [url, "insert-next", "-1", `force-media-title=${safeTitle}`]);
+        } else {
+            mpv.command("loadfile", [url, "insert-next"]);
+        }
+        playback.autoplayQueued = true;
+        console.log("Jellyfin: Queued next episode");
+    } catch (error) {
+        console.error(`Jellyfin: Failed to queue next episode: ${formatError(error)}`);
+    }
+}
+
+async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem | null> {
+    const httpContext = getHttpContext();
+    const userId = getUserId();
+    if (!httpContext || !userId || !getCurrentPlayback()) {
+        return null;
+    }
+
+    return await requestJson<JellyfinBaseItem>(httpContext, {
+        method: "GET",
+        endpoint: `/Users/${userId}/Items/${itemId}`,
+        query: {
+            Fields: ITEM_DETAILS_FIELDS
+        }
+    });
+}
+
+async function fetchEpisodes(seriesId: string, seasonId: string): Promise<JellyfinBaseItem[]> {
+    const httpContext = getHttpContext();
+    const userId = getUserId();
+    if (!httpContext || !userId) {
+        return [];
+    }
+
+    const result = await requestJson<JellyfinBaseItemQuery>(httpContext, {
+        method: "GET",
+        endpoint: `/Shows/${seriesId}/Episodes`,
+        query: {
+            UserId: userId,
+            SeasonId: seasonId,
+            Fields: FIELDS_EPISODES
+        }
+    });
+
+    return (result?.Items || []).filter((item) => item.Type === "Episode");
+}
+
+async function fetchSeasons(seriesId: string): Promise<JellyfinBaseItem[]> {
+    const httpContext = getHttpContext();
+    const userId = getUserId();
+    if (!httpContext || !userId) {
+        return [];
+    }
+
+    const result = await requestJson<JellyfinBaseItemQuery>(httpContext, {
+        method: "GET",
+        endpoint: `/Shows/${seriesId}/Seasons`,
+        query: {
+            UserId: userId,
+            Fields: FIELDS_SEASONS
+        }
+    });
+
+    return result?.Items || [];
+}
+
+async function resolveSequentialNextEpisode(
+    seriesId: string,
+    seasonId: string,
+    episodeIndex: number
+): Promise<JellyfinBaseItem | null> {
+    const episodes = await fetchEpisodes(seriesId, seasonId);
+    const nextEpisode = episodes.find((item) => item.IndexNumber === episodeIndex + 1);
+    if (nextEpisode) {
+        return nextEpisode;
+    }
+
+    const seasons = await fetchSeasons(seriesId);
+    if (!Array.isArray(seasons) || seasons.length === 0) {
+        return null;
+    }
+
+    const sortedSeasons = [...seasons].sort((a, b) => {
+        if (a.IndexNumber === undefined || a.IndexNumber === null) {
+            return 1;
+        }
+        if (b.IndexNumber === undefined || b.IndexNumber === null) {
+            return -1;
+        }
+        return a.IndexNumber - b.IndexNumber;
+    });
+
+    const currentIndex = sortedSeasons.findIndex((season) => season.Id === seasonId);
+    if (currentIndex === -1) {
+        return null;
+    }
+
+    const nextSeason = sortedSeasons[currentIndex + 1];
+    if (!nextSeason) {
+        return null;
+    }
+
+    const nextSeasonEpisodes = await fetchEpisodes(seriesId, nextSeason.Id || "");
+    if (nextSeasonEpisodes.length === 0) {
+        return null;
+    }
+
+    const sortedByIndex = nextSeasonEpisodes
+        .filter((item) => item.IndexNumber !== null && item.IndexNumber !== undefined)
+        .sort((a, b) => (a.IndexNumber || 0) - (b.IndexNumber || 0));
+
+    return sortedByIndex[0] || nextSeasonEpisodes[0] || null;
+}
+
+async function buildAutoplayStream(itemId: string, context: {
+    seriesId: string;
+    seasonId: string;
+    episodeIndex?: number | null;
+}) {
+    const httpContext = getHttpContext();
+    const userId = getUserId();
+    if (!httpContext || !userId) {
+        throw new Error("Missing playback context");
+    }
+
+    const playbackInfo = await requestJson<JellyfinPlaybackInfoResponse>(httpContext, {
+        method: "POST",
+        endpoint: `/Items/${itemId}/PlaybackInfo`,
+        query: {
+            UserId: userId
+        },
+        body: {
+            DeviceProfile: getDeviceProfile()
+        }
+    });
+
+    const playSessionId = playbackInfo?.PlaySessionId || "";
+    const mediaSource = playbackInfo?.MediaSources?.[0];
+    const mediaSourceId = mediaSource?.Id || itemId;
+    const runtimeTicks = mediaSource?.RunTimeTicks || 0;
+    const itemDetails = await fetchItemDetails(itemId);
+    const windowTitle = buildWindowTitle(itemDetails, itemDetails?.Name || "");
+
+    const streamUrl = buildStreamUrl(httpContext.serverUrl, httpContext.accessToken, itemId, {
+        mediaSourceId: mediaSourceId,
+        playSessionId: playSessionId,
+        _jf_runtimeTicks: runtimeTicks,
+        _jf_deviceId: httpContext.deviceId,
+        _jf_userId: userId,
+        _jf_seriesId: context.seriesId,
+        _jf_seasonId: context.seasonId,
+        _jf_episodeIndex: context.episodeIndex ?? undefined
+    });
+
+    return {
+        url: streamUrl,
+        title: windowTitle
+    };
+}
+
+export function shouldRequestAutoplay(): boolean {
+    return isAutoplayNextEnabled();
+}
+
+export function resetPlaylistAfterReplace(): void {
+    prunePlaylistToCurrentEntry();
+}
+
+export async function requestAutoplayNextEpisode(): Promise<void> {
+    const playback = getCurrentPlayback();
+    if (!playback || !playback.isEpisode) {
+        return;
+    }
+
+    const httpContext = getHttpContext();
+    const userId = getUserId();
+    if (!httpContext || !userId) {
+        return;
+    }
+
+    autoplayRequestCounter += 1;
+    const requestId = autoplayRequestCounter;
+    playback.autoplayRequestId = requestId;
+    playback.autoplayQueued = false;
+
+    try {
+        const itemDetails = await fetchItemDetails(playback.itemId);
+        if (!itemDetails || itemDetails.Type !== "Episode") {
+            playback.nextItemId = "";
+            return;
+        }
+
+        const seriesId = playback.seriesId || itemDetails.SeriesId || "";
+        const seasonId = playback.seasonId || itemDetails.SeasonId || itemDetails.ParentId || "";
+        const episodeIndexValue = playback.episodeIndex ?? itemDetails.IndexNumber;
+        const episodeIndex = Number.parseInt(String(episodeIndexValue), 10);
+
+        if (!seriesId || !seasonId || Number.isNaN(episodeIndex)) {
+            playback.nextItemId = "";
+            return;
+        }
+
+        const nextEpisode = await resolveSequentialNextEpisode(seriesId, seasonId, episodeIndex);
+        if (!nextEpisode || nextEpisode.Id === playback.itemId) {
+            playback.nextItemId = "";
+            return;
+        }
+
+        const streamData = await buildAutoplayStream(nextEpisode.Id || "", {
+            seriesId: nextEpisode.SeriesId || seriesId,
+            seasonId: nextEpisode.SeasonId || nextEpisode.ParentId || seasonId,
+            episodeIndex: nextEpisode.IndexNumber ?? undefined
+        });
+
+        const latestPlayback = getCurrentPlayback();
+        if (!latestPlayback || latestPlayback.autoplayRequestId !== requestId) {
+            return;
+        }
+
+        latestPlayback.nextItemId = nextEpisode.Id || "";
+        queueNextEpisode(streamData.url, streamData.title || "");
+    } catch (error) {
+        const latestPlayback = getCurrentPlayback();
+        if (latestPlayback && latestPlayback.autoplayRequestId === requestId) {
+            latestPlayback.nextItemId = "";
+            latestPlayback.autoplayQueued = false;
+        }
+        console.error(`Jellyfin: Autoplay lookup failed: ${formatError(error)}`);
+    }
+}

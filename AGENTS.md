@@ -6,27 +6,30 @@ This guidance is for agentic coding assistants working in this repository. It do
 
 - Project: Jellyfin sidebar plugin for IINA on macOS.
 - Runtime environments:
-  - Plugin context (`main.js`, `global.js`): IINA plugin JS runtime (not Node.js).
-  - Sidebar webview (`ui/sidebar.html`, `ui/sidebar.js`): browser-like webview environment with DOM and `fetch()`.
-- Languages: plain JavaScript, HTML, CSS.
-- No build, bundler, or package manager. Edit files directly under `xyz.brbc.jellyfin.iinaplugin/`.
+  - Plugin context (`xyz.brbc.jellyfin.iinaplugin/dist/main.js`, `xyz.brbc.jellyfin.iinaplugin/dist/global.js`): IINA plugin JS runtime (not Node.js), built from `src/plugin/`.
+  - Sidebar webview (`xyz.brbc.jellyfin.iinaplugin/ui/sidebar.html`, `xyz.brbc.jellyfin.iinaplugin/ui/dist/sidebar.js`): browser-like webview environment with DOM and `fetch()`, built from `src/ui/`.
+- Languages: TypeScript (source), compiled JavaScript, HTML, CSS.
+- Bun-only tooling for build/typecheck. Do not introduce Node-based tooling without explicit request.
 
 ## Repository Layout
 
+- `src/plugin/`: plugin TypeScript sources (compiled to `xyz.brbc.jellyfin.iinaplugin/dist`).
+- `src/ui/`: sidebar TypeScript sources (compiled to `xyz.brbc.jellyfin.iinaplugin/ui/dist`).
+- `src/shared/`: shared message + Jellyfin types for plugin and UI.
 - `xyz.brbc.jellyfin.iinaplugin/Info.json`: plugin manifest, entrypoints, permissions.
-- `xyz.brbc.jellyfin.iinaplugin/global.js`: global entry (runs before any player window exists).
-- `xyz.brbc.jellyfin.iinaplugin/main.js`: per-player entry (sidebar wiring, playback detection, reporting, skip overlay, autoplay).
+- `xyz.brbc.jellyfin.iinaplugin/dist/`: generated plugin runtime output (do not edit manually).
 - `xyz.brbc.jellyfin.iinaplugin/ui/sidebar.html`: sidebar webview template.
-- `xyz.brbc.jellyfin.iinaplugin/ui/sidebar.js`: sidebar UI, authentication, browsing/search, Jellyfin API calls via `fetch()`.
+- `xyz.brbc.jellyfin.iinaplugin/ui/dist/`: generated sidebar runtime output (do not edit manually).
 - `xyz.brbc.jellyfin.iinaplugin/ui/sidebar.css`: sidebar styling.
 - `xyz.brbc.jellyfin.iinaplugin/assets/`: plugin assets (splash image, etc).
 - `xyz.brbc.jellyfin.iinaplugin/ui/assets/`: sidebar UI assets (logos/icons).
 
 ## Build / Lint / Test
 
-There is no configured build, lint, or automated test framework in this repo.
+There is a Bun-based build + typecheck pipeline and no lint/test tooling.
 
-- Build: none.
+- Build: `bun run build` (outputs to `xyz.brbc.jellyfin.iinaplugin/dist` and `xyz.brbc.jellyfin.iinaplugin/ui/dist`, not committed).
+- Typecheck: `bun run typecheck`.
 - Lint/format: none (do not introduce tooling unless explicitly requested).
 - Tests: none.
 
@@ -34,15 +37,18 @@ There is no configured build, lint, or automated test framework in this repo.
 
 To test changes locally in IINA:
 
-1. Reinstall plugin into IINA’s plugin directory:
+1. Install deps + build:
+   - `bun install`
+   - `bun run build`
+2. Reinstall plugin into IINA’s plugin directory:
    - `rm -rf "$HOME/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin"`
    - `cp -R /Users/ada-bee/Developer/jellyfin-iina/xyz.brbc.jellyfin.iinaplugin "$HOME/Library/Application Support/com.colliderli.iina/plugins/"`
-2. Restart IINA.
-3. Open IINA Log Viewer: Help → Log Viewer.
-4. Open Jellyfin sidebar:
+3. Restart IINA.
+4. Open IINA Log Viewer: Help → Log Viewer.
+5. Open Jellyfin sidebar:
    - Menu item / hotkey (Shift+J), or
    - Sidebar tab “Jellyfin”.
-5. Verify:
+6. Verify:
    - Login/session restore works.
    - Browsing works (Home, libraries, seasons, episodes).
    - Search works.
@@ -53,24 +59,23 @@ To test changes locally in IINA:
 
 ## Platform and API Constraints
 
-### Plugin Context (`main.js`, `global.js`)
+### Plugin Context (`dist/main.js`, `dist/global.js`)
 
 - Not Node.js: no `require()`, no npm modules.
-- Use IINA APIs (`iina.sidebar`, `iina.event`, `iina.mpv`, `iina.global`, etc).
+- Use IINA APIs (`iina.sidebar`, `iina.event`, `iina.mpv`, `iina.global`, `iina.http`, etc).
 - `sidebar.loadFile()` clears sidebar message listeners:
   - Always register `sidebar.onMessage(...)` after calling `sidebar.loadFile(...)`.
 
-### Sidebar Webview (`ui/sidebar.js`)
+### Sidebar Webview (`ui/dist/sidebar.js`)
 
 - Has DOM + `fetch()`.
-- Use `fetch()` for Jellyfin API calls (ATS can block plugin-context HTTP).
+- Use `fetch()` for browsing/search API calls; playback reporting happens in plugin context.
 - Session persistence is handled with `localStorage` in the webview.
 
 ## Known Behavior / Design Decisions
 
-- HTTP support is preserved (plugin supports `http://` Jellyfin servers).
-- Playback reporting is performed by the sidebar webview via `fetch()`:
-  - `main.js` sends reporting requests to the sidebar to avoid ATS issues in plugin context.
+- HTTPS-only Jellyfin servers (UI + plugin reject `http://`).
+- Playback reporting, media segments, and autoplay resolution run in the plugin context via `iina.http`.
 - Splash handling:
   - The splash path uses `~` and is opened via `core.open()`; this is intentional.
   - `mpv.command('loadfile', ...)` can have issues resolving `~` in file paths.
@@ -87,6 +92,10 @@ To test changes locally in IINA:
 
 ### Sidebar → Main
 
+- `iina.postMessage('authUpdated', { serverUrl, accessToken, userId, username, deviceId, serverName })`:
+  - Used after login/session restore to sync auth into the plugin context.
+- `iina.postMessage('authCleared', {})`:
+  - Used on logout to clear plugin auth state.
 - `iina.postMessage('playItem', { url, resumeSeconds, title })`:
   - Used to start playback from the sidebar.
 
@@ -94,12 +103,6 @@ To test changes locally in IINA:
 
 - `sidebar.postMessage('refreshSidebar', {})`:
   - Requests the sidebar to return to Home and reload content.
-- `sidebar.postMessage('reportPlayback', { endpoint, body })`:
-  - Sidebar performs the Jellyfin API call via `fetch()`.
-- `sidebar.postMessage('getMediaSegments', { itemId })`:
-  - Sidebar fetches intro/outro segments via Jellyfin API.
-- `sidebar.postMessage('resolveNextEpisode', { requestId, itemId, seriesId, seasonId, episodeIndex })`:
-  - Sidebar resolves next episode and returns stream data.
 
 ## Jellyfin API Conventions
 
@@ -145,12 +148,15 @@ To test changes locally in IINA:
 ## Files to Treat Carefully
 
 - `xyz.brbc.jellyfin.iinaplugin/Info.json`: manifest, permissions, entrypoints.
-- `xyz.brbc.jellyfin.iinaplugin/main.js`: playback lifecycle + reporting.
-- `xyz.brbc.jellyfin.iinaplugin/ui/sidebar.js`: API requests + UI state.
+- `src/plugin/`: playback lifecycle + reporting + autoplay + segments (source of truth).
+- `src/ui/`: browsing/search + login UI (source of truth).
+- `src/shared/`: shared message + Jellyfin types used by plugin and UI.
 
 ## Notes
 
-- Do not add build scripts or testing infrastructure unless explicitly requested.
+- Use the existing Bun build pipeline; do not add new tooling unless explicitly requested.
 - Prefer small, targeted edits aligned with existing patterns.
-- Releases are published as `.iinaplgz` assets; verify packaging in the GitHub release.
+- Releases are published as `.iinaplgz` assets built in CI; `dist/` is not committed.
+- GitHub installs pull from release assets, not the repository contents.
+- Use `bun.lock` (not `bun.lockb`).
 - If unsure about IINA API behavior, consult https://docs.iina.io/pages/creating-plugins.html.

@@ -1,0 +1,14 @@
+export const CLIENT_NAME = "IINA Jellyfin Plugin";
+export const CLIENT_VERSION = "1.2.1";
+export const DEVICE_NAME = "IINA";
+export const DEBUG_LOGS = false;
+
+export const TICKS_PER_SECOND = 10000000;
+export const TICKS_PER_MINUTE = 600000000;
+
+export const FIELDS_LIBRARY_ITEMS = "Overview,Genres,MediaSources,UserData,RunTimeTicks,SeriesId,SeasonId";
+export const FIELDS_EPISODES = "Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId";
+export const FIELDS_HOME_ITEMS = "Overview,UserData,RunTimeTicks,SeriesName,ProductionYear,ParentIndexNumber,IndexNumber,SeriesId,SeasonId";
+export const FIELDS_SEARCH = "Overview,UserData,RunTimeTicks,SeriesName,ProductionYear,ParentIndexNumber,IndexNumber,SeriesId,SeasonId,RecursiveItemCount,ChildCount";
+export const FIELDS_SEASONS = "Overview,UserData,RunTimeTicks";
+export const ITEM_DETAILS_FIELDS = "ProductionYear,ParentIndexNumber,IndexNumber,SeriesName,SeriesId,SeasonId,ParentId,Type";

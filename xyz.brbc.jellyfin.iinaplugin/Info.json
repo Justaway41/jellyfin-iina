@@ -8,8 +8,8 @@
   "author": {
     "name": "ada-bee"
   },
-  "entry": "main.js",
-  "globalEntry": "global.js",
+  "entry": "dist/main.js",
+  "globalEntry": "dist/global.js",
   "sidebarTab": {
     "name": "Jellyfin"
   },
