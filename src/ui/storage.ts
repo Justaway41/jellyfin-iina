@@ -10,6 +10,44 @@ export interface StoredSession {
     savedAt: number;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function parseStoredSession(value: unknown): StoredSession | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    if (typeof value.serverUrl !== "string" || !value.serverUrl) {
+        return null;
+    }
+    if (typeof value.serverName !== "string") {
+        return null;
+    }
+    if (typeof value.accessToken !== "string" || !value.accessToken) {
+        return null;
+    }
+    if (typeof value.userId !== "string" || !value.userId) {
+        return null;
+    }
+    if (typeof value.username !== "string") {
+        return null;
+    }
+    if (typeof value.savedAt !== "number" || !Number.isFinite(value.savedAt)) {
+        return null;
+    }
+
+    return {
+        serverUrl: value.serverUrl,
+        serverName: value.serverName,
+        accessToken: value.accessToken,
+        userId: value.userId,
+        username: value.username,
+        savedAt: value.savedAt
+    };
+}
+
 let cachedDeviceId = "";
 
 export function getDeviceId(): string {
@@ -41,11 +79,13 @@ export function loadSessionFromStorage(): StoredSession | null {
         if (!stored) {
             return null;
         }
-        const sessionData = JSON.parse(stored) as StoredSession;
-        if (sessionData.serverUrl && sessionData.accessToken && sessionData.userId) {
+        const sessionData = parseStoredSession(JSON.parse(stored));
+        if (sessionData) {
             return sessionData;
         }
+        clearSessionFromStorage();
     } catch (error) {
+        clearSessionFromStorage();
         console.error("Failed to load session from localStorage:", error);
     }
     return null;
