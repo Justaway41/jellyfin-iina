@@ -62,7 +62,7 @@ export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?:
         headers: headers
     };
 
-    if (data && (method === "POST" || method === "PUT")) {
+    if (data !== undefined && (method === "POST" || method === "PUT" || method === "PATCH")) {
         headers["Content-Type"] = "application/json";
         options.body = JSON.stringify(data);
     }
