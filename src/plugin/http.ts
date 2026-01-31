@@ -57,14 +57,14 @@ async function sendRequest<ResData>(
         case "DELETE":
             return http.delete(url, options);
         default:
-            return http.get(url, options);
+            throw new Error(`Unsupported HTTP method: ${method}`);
     }
 }
 
-export async function requestJson<T>(
-    context: HttpContext,
-    options: HttpRequestOptions
-): Promise<T | null> {
+function resolveRequest(context: HttpContext, options: HttpRequestOptions): {
+    url: string;
+    requestOptions: IINA.HTTPRequestOption;
+} {
     const normalizedUrl = normalizeServerUrl(context.serverUrl);
     if (!isHttpsUrl(normalizedUrl)) {
         throw new Error("Jellyfin server URL must start with https://");
@@ -91,15 +91,43 @@ export async function requestJson<T>(
         data: hasBody ? options.body : {}
     };
 
-    const response = await sendRequest<T>(options.method, url, requestOptions);
+    return {
+        url: url,
+        requestOptions: requestOptions
+    };
+}
+
+function assertOkResponse(response: IINA.HTTPResponse<unknown>): void {
     const statusCode = response.statusCode || 0;
     if (statusCode < 200 || statusCode >= 300) {
         const responseText = response.text ? String(response.text) : "";
         const detail = responseText ? ` - ${responseText.slice(0, 200)}` : "";
         throw new Error(`HTTP ${statusCode} ${response.reason || ""}${detail}`.trim());
     }
+}
+
+function parseJsonResponse<T>(responseText: string): T {
+    try {
+        return JSON.parse(responseText) as T;
+    } catch (error) {
+        const snippet = responseText.slice(0, 200);
+        throw new Error(`Expected JSON response but got: ${snippet}`.trim());
+    }
+}
+
+export async function requestJson<T>(
+    context: HttpContext,
+    options: HttpRequestOptions
+): Promise<T | null> {
+    const { url, requestOptions } = resolveRequest(context, options);
+
+    const response = await sendRequest<unknown>(options.method, url, requestOptions);
+    assertOkResponse(response);
 
     if (response.data !== undefined && response.data !== null) {
+        if (typeof response.data === "string") {
+            return parseJsonResponse<T>(response.data);
+        }
         return response.data as T;
     }
 
@@ -108,9 +136,28 @@ export async function requestJson<T>(
         return null;
     }
 
-    try {
-        return JSON.parse(responseText) as T;
-    } catch (error) {
-        return responseText as unknown as T;
+    return parseJsonResponse<T>(responseText);
+}
+
+export async function requestText(
+    context: HttpContext,
+    options: HttpRequestOptions
+): Promise<string | null> {
+    const { url, requestOptions } = resolveRequest(context, options);
+    const response = await sendRequest<unknown>(options.method, url, requestOptions);
+    assertOkResponse(response);
+
+    if (response.text !== undefined && response.text !== null) {
+        const textValue = String(response.text);
+        return textValue ? textValue : null;
     }
+
+    if (response.data !== undefined && response.data !== null) {
+        if (typeof response.data === "string") {
+            return response.data;
+        }
+        return JSON.stringify(response.data);
+    }
+
+    return null;
 }
