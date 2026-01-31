@@ -2,7 +2,7 @@ import type { JellyfinBaseItem } from "../shared/jellyfin";
 
 import { ui } from "./dom";
 import { state } from "./state";
-import { escapeHtml, formatEpisodeNumber, formatRuntime } from "./utils";
+import { formatEpisodeNumber, formatRuntime } from "./utils";
 
 export interface ListCardOptions {
     showSeriesName?: boolean;
@@ -53,8 +53,7 @@ export function renderEmptyState(message: string): void {
     const emptyState = document.createElement("div");
     emptyState.className = "empty-state";
     emptyState.textContent = message;
-    ui.content.innerHTML = "";
-    ui.content.appendChild(emptyState);
+    ui.content.replaceChildren(emptyState);
 }
 
 export function showError(message: string): void {
@@ -72,13 +71,14 @@ export function updateTitle(title: string): void {
 }
 
 export function renderListCards(items: JellyfinBaseItem[], options: ListCardOptions = {}): void {
-    const html = `
-        <div class="media-list">
-            ${items.map(item => buildListCard(item, options)).join("")}
-        </div>
-    `;
+    const list = document.createElement("div");
+    list.className = "media-list";
 
-    ui.content.innerHTML = html;
+    items.forEach(item => {
+        list.appendChild(buildListCardElement(item, options));
+    });
+
+    ui.content.replaceChildren(list);
 }
 
 export function renderHomeSections(
@@ -91,63 +91,83 @@ export function renderHomeSections(
         { title: "Latest Movies", items: recentMovies },
         { title: "Latest TV", items: recentEpisodes }
     ];
+    const fragment = document.createDocumentFragment();
 
-    const html = sections.map(section => {
+    sections.forEach(section => {
+        const sectionEl = document.createElement("div");
+        sectionEl.className = "home-section";
+
+        const title = document.createElement("h3");
+        title.textContent = section.title;
+        sectionEl.appendChild(title);
+
         const items = section.items || [];
         if (items.length === 0) {
-            return `
-                <div class="home-section">
-                    <h3>${section.title}</h3>
-                    <div class="empty-state" data-empty="true">No items found</div>
-                </div>
-            `;
+            const emptyState = document.createElement("div");
+            emptyState.className = "empty-state";
+            emptyState.setAttribute("data-empty", "true");
+            emptyState.textContent = "No items found";
+            sectionEl.appendChild(emptyState);
+        } else {
+            const list = document.createElement("div");
+            list.className = "media-list";
+            items.forEach(item => {
+                list.appendChild(buildListCardElement(item, {
+                    showSeriesName: section.title === "Up Next" || section.title === "Latest TV",
+                    showEpisodeNumber: true
+                }));
+            });
+            sectionEl.appendChild(list);
         }
-        return `
-            <div class="home-section">
-                <h3>${section.title}</h3>
-                <div class="media-list">
-                    ${items.map(item => buildListCard(item, {
-                        showSeriesName: section.title === "Up Next" || section.title === "Latest TV",
-                        showEpisodeNumber: true
-                    })).join("")}
-                </div>
-            </div>
-        `;
-    }).join("");
 
-    ui.content.innerHTML = html;
+        fragment.appendChild(sectionEl);
+    });
+
+    ui.content.replaceChildren(fragment);
 }
 
 export function renderSeriesOverview(nextUpItem: JellyfinBaseItem | null, seasons: JellyfinBaseItem[]): void {
-    const sections: string[] = [];
+    const fragment = document.createDocumentFragment();
 
     if (nextUpItem) {
-        sections.push(`
-            <div class="home-section">
-                <h3>Up Next</h3>
-                <div class="media-list">
-                    ${buildListCard(nextUpItem, {
-                        showSeriesName: false,
-                        showEpisodeNumber: true,
-                        useEpisodeThumbnail: true
-                    })}
-                </div>
-            </div>
-        `);
+        const section = document.createElement("div");
+        section.className = "home-section";
+
+        const title = document.createElement("h3");
+        title.textContent = "Up Next";
+        section.appendChild(title);
+
+        const list = document.createElement("div");
+        list.className = "media-list";
+        list.appendChild(buildListCardElement(nextUpItem, {
+            showSeriesName: false,
+            showEpisodeNumber: true,
+            useEpisodeThumbnail: true
+        }));
+        section.appendChild(list);
+
+        fragment.appendChild(section);
     }
 
     if (seasons.length > 0) {
-        sections.push(`
-            <div class="season-section">
-                <h3>Seasons</h3>
-                <div class="season-grid">
-                    ${seasons.map(season => buildSeasonCard(season)).join("")}
-                </div>
-            </div>
-        `);
+        const section = document.createElement("div");
+        section.className = "season-section";
+
+        const title = document.createElement("h3");
+        title.textContent = "Seasons";
+        section.appendChild(title);
+
+        const grid = document.createElement("div");
+        grid.className = "season-grid";
+        seasons.forEach(season => {
+            grid.appendChild(buildSeasonCardElement(season));
+        });
+        section.appendChild(grid);
+
+        fragment.appendChild(section);
     }
 
-    ui.content.innerHTML = sections.join("");
+    ui.content.replaceChildren(fragment);
 }
 
 export function renderSearchResults(items: JellyfinBaseItem[]): void {
@@ -192,16 +212,26 @@ export function renderSearchResults(items: JellyfinBaseItem[]): void {
         return;
     }
 
-    const html = visibleSections.map(section => `
-        <div class="result-section">
-            <h3>${section.title}</h3>
-            <div class="media-list">
-                ${section.items.map(item => buildListCard(item, section.options)).join("")}
-            </div>
-        </div>
-    `).join("");
+    const fragment = document.createDocumentFragment();
+    visibleSections.forEach(section => {
+        const sectionEl = document.createElement("div");
+        sectionEl.className = "result-section";
 
-    ui.content.innerHTML = html;
+        const title = document.createElement("h3");
+        title.textContent = section.title;
+        sectionEl.appendChild(title);
+
+        const list = document.createElement("div");
+        list.className = "media-list";
+        section.items.forEach(item => {
+            list.appendChild(buildListCardElement(item, section.options));
+        });
+        sectionEl.appendChild(list);
+
+        fragment.appendChild(sectionEl);
+    });
+
+    ui.content.replaceChildren(fragment);
 }
 
 export function findListCard(target: EventTarget | null): HTMLElement | null {
@@ -252,36 +282,56 @@ export function handleContentError(event: Event): void {
     }
 }
 
-function buildSeasonCard(season: JellyfinBaseItem): string {
+function buildSeasonCardElement(season: JellyfinBaseItem): HTMLElement {
     const imageUrl = getImageUrl(season.Id || "", "Primary", 240);
     const seriesPosterUrl = state.currentSeries?.id
         ? getImageUrl(state.currentSeries.id, "Primary", 240)
         : "";
-    const seasonName = escapeHtml(season.Name);
-    return `
-        <div class="season-card list-card" data-id="${season.Id || ""}" data-name="${seasonName}" data-type="Season" data-resume="0" data-series-id="${state.currentSeries?.id || ""}" data-season-id="${season.Id || ""}" data-clickable tabindex="0" role="button">
-            <div class="season-poster">
-                <img class="season-thumb"
-                     src="${imageUrl}"
-                     data-fallback="${seriesPosterUrl}"
-                     alt="${seasonName}"
-                     loading="lazy">
-            </div>
-            <div class="season-title">${seasonName}</div>
-        </div>
-    `;
+    const seasonName = season.Name ? String(season.Name) : "";
+
+    const card = document.createElement("div");
+    card.className = "season-card list-card";
+    card.dataset.id = season.Id || "";
+    card.dataset.name = seasonName;
+    card.dataset.type = "Season";
+    card.dataset.resume = "0";
+    card.dataset.seriesId = state.currentSeries?.id || "";
+    card.dataset.seasonId = season.Id || "";
+    card.setAttribute("data-clickable", "");
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+
+    const poster = document.createElement("div");
+    poster.className = "season-poster";
+
+    const image = document.createElement("img");
+    image.className = "season-thumb";
+    image.src = imageUrl;
+    image.dataset.fallback = seriesPosterUrl;
+    image.alt = seasonName;
+    image.loading = "lazy";
+
+    poster.appendChild(image);
+    card.appendChild(poster);
+
+    const title = document.createElement("div");
+    title.className = "season-title";
+    title.textContent = seasonName;
+    card.appendChild(title);
+
+    return card;
 }
 
-function buildListCard(item: JellyfinBaseItem, options: ListCardOptions): string {
-    const metadata = buildMetadata(item, options);
+function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions): HTMLElement {
+    const metadata = buildMetadataText(item, options);
     const runtime = formatRuntime(item.RunTimeTicks || undefined);
-    const durationLabel = buildDurationLabel(item, runtime, options);
-    const progressBar = renderThumbProgress(item);
+    const durationLabel = buildDurationLabelElement(item, runtime, options);
+    const progressBar = buildThumbProgressElement(item);
 
     const seriesId = item.SeriesId || "";
     const seasonId = item.SeasonId || item.ParentId || "";
     const episodeIndex = item.IndexNumber !== undefined && item.IndexNumber !== null
-        ? item.IndexNumber
+        ? String(item.IndexNumber)
         : "";
     const thumbnailUrl = getThumbnailUrl(item, options);
     const useEpisodeFallback = Boolean(options.useEpisodeThumbnail && item.Type === "Episode" && seriesId);
@@ -289,31 +339,67 @@ function buildListCard(item: JellyfinBaseItem, options: ListCardOptions): string
     const fallbackThumbnailUrl = useEpisodeFallback
         ? getImageUrl(seriesId, "Thumb", 160)
         : (useBackdropFallback ? getImageUrl(item.Id || "", "Backdrop", 320) : "");
-    const escapedName = escapeHtml(item.Name);
+    const displayName = item.Name ? String(item.Name) : "";
 
-    return `
-        <div class="list-card" data-id="${item.Id || ""}" data-name="${escapedName}" data-type="${item.Type || ""}" data-resume="${item.UserData?.PlaybackPositionTicks || 0}" data-series-id="${seriesId}" data-season-id="${seasonId}" data-episode-index="${episodeIndex}" data-clickable tabindex="0" role="button">
-            <div class="thumb-wrapper">
-                <img class="list-thumb"
-                     src="${thumbnailUrl}"
-                     data-fallback="${fallbackThumbnailUrl}"
-                     data-item-id="${item.Id || ""}"
-                     data-type="${item.Type || ""}"
-                     alt="${escapedName}"
-                     loading="lazy">
-                <div class="play-overlay">&#9654;</div>
-                ${progressBar}
-            </div>
-            <div class="list-body">
-                <div class="list-title">${escapedName}</div>
-                <div class="list-meta">${metadata}</div>
-            </div>
-            ${durationLabel}
-        </div>
-    `;
+    const card = document.createElement("div");
+    card.className = "list-card";
+    card.dataset.id = item.Id || "";
+    card.dataset.name = displayName;
+    card.dataset.type = item.Type || "";
+    card.dataset.resume = String(item.UserData?.PlaybackPositionTicks || 0);
+    card.dataset.seriesId = seriesId;
+    card.dataset.seasonId = seasonId;
+    card.dataset.episodeIndex = episodeIndex;
+    card.setAttribute("data-clickable", "");
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+
+    const thumbWrapper = document.createElement("div");
+    thumbWrapper.className = "thumb-wrapper";
+
+    const image = document.createElement("img");
+    image.className = "list-thumb";
+    image.src = thumbnailUrl;
+    image.dataset.fallback = fallbackThumbnailUrl;
+    image.dataset.itemId = item.Id || "";
+    image.dataset.type = item.Type || "";
+    image.alt = displayName;
+    image.loading = "lazy";
+    thumbWrapper.appendChild(image);
+
+    const playOverlay = document.createElement("div");
+    playOverlay.className = "play-overlay";
+    playOverlay.textContent = "\u25B6";
+    thumbWrapper.appendChild(playOverlay);
+
+    if (progressBar) {
+        thumbWrapper.appendChild(progressBar);
+    }
+
+    const listBody = document.createElement("div");
+    listBody.className = "list-body";
+
+    const title = document.createElement("div");
+    title.className = "list-title";
+    title.textContent = displayName;
+    listBody.appendChild(title);
+
+    const meta = document.createElement("div");
+    meta.className = "list-meta";
+    meta.textContent = metadata;
+    listBody.appendChild(meta);
+
+    card.appendChild(thumbWrapper);
+    card.appendChild(listBody);
+
+    if (durationLabel) {
+        card.appendChild(durationLabel);
+    }
+
+    return card;
 }
 
-function buildDurationLabel(item: JellyfinBaseItem, runtime: string, options: ListCardOptions): string {
+function buildDurationLabelElement(item: JellyfinBaseItem, runtime: string, options: ListCardOptions): HTMLElement | null {
     if (options.showSeriesEpisodeCounts && item.Type === "Series") {
         const totalEpisodes = item.RecursiveItemCount || item.ChildCount || 0;
         const userData = item.UserData as (typeof item.UserData & { PlayedItemCount?: number }) | undefined;
@@ -325,15 +411,25 @@ function buildDurationLabel(item: JellyfinBaseItem, runtime: string, options: Li
                 ? Math.max(totalEpisodes - unplayedCount, 0)
                 : 0);
         if (totalEpisodes > 0) {
-            return `<div class="list-duration">${watchedEpisodes}/${totalEpisodes}</div>`;
+            const label = document.createElement("div");
+            label.className = "list-duration";
+            label.textContent = `${watchedEpisodes}/${totalEpisodes}`;
+            return label;
         }
-        return "";
+        return null;
     }
 
-    return runtime ? `<div class="list-duration">${runtime}</div>` : "";
+    if (runtime) {
+        const label = document.createElement("div");
+        label.className = "list-duration";
+        label.textContent = runtime;
+        return label;
+    }
+
+    return null;
 }
 
-function buildMetadata(item: JellyfinBaseItem, options: ListCardOptions): string {
+function buildMetadataText(item: JellyfinBaseItem, options: ListCardOptions): string {
     const metaParts: Array<string | number> = [];
 
     if (options.showEpisodeNumber && item.Type === "Episode") {
@@ -341,56 +437,78 @@ function buildMetadata(item: JellyfinBaseItem, options: ListCardOptions): string
     }
 
     if (options.showSeriesName !== false && item.SeriesName) {
-        metaParts.push(escapeHtml(item.SeriesName));
+        metaParts.push(String(item.SeriesName));
     }
 
     if (item.Type !== "Episode" && item.ProductionYear) {
         metaParts.push(item.ProductionYear);
     }
 
-    return metaParts.filter(Boolean).join(" &bull; ");
+    return metaParts.filter(Boolean).join(" \u2022 ");
 }
 
 function hasProgress(item: JellyfinBaseItem): boolean {
     return Boolean(item.UserData?.PlaybackPositionTicks && item.RunTimeTicks);
 }
 
-function renderThumbProgress(item: JellyfinBaseItem): string {
+function buildThumbProgressElement(item: JellyfinBaseItem): HTMLElement | null {
     if (!item || item.Type === "Series") {
-        return "";
+        return null;
     }
 
     if (item.UserData?.Played) {
-        return `
-            <div class="thumb-progress">
-                <div class="thumb-progress-fill thumb-progress-fill--complete" style="width: 100%"></div>
-            </div>
-        `;
+        const progress = document.createElement("div");
+        progress.className = "thumb-progress";
+
+        const fill = document.createElement("div");
+        fill.className = "thumb-progress-fill thumb-progress-fill--complete";
+        fill.style.width = "100%";
+        progress.appendChild(fill);
+
+        return progress;
     }
 
     if (!hasProgress(item)) {
-        return "";
+        return null;
     }
 
     const runtimeTicks = item.RunTimeTicks || 0;
     const positionTicks = item.UserData?.PlaybackPositionTicks || 0;
     const progress = runtimeTicks ? (positionTicks / runtimeTicks) * 100 : 0;
     if (progress < 1) {
-        return "";
+        return null;
     }
 
-    return `
-        <div class="thumb-progress">
-            <div class="thumb-progress-fill thumb-progress-fill--partial" style="width: ${Math.min(progress, 100)}%"></div>
-        </div>
-    `;
+    const progressEl = document.createElement("div");
+    progressEl.className = "thumb-progress";
+
+    const fill = document.createElement("div");
+    fill.className = "thumb-progress-fill thumb-progress-fill--partial";
+    fill.style.width = `${Math.min(progress, 100)}%`;
+    progressEl.appendChild(fill);
+
+    return progressEl;
 }
 
 function getImageUrl(itemId: string, imageType: string = "Primary", maxWidth: number = 120): string {
-    if (!state.serverUrl) {
+    if (!state.serverUrl || !itemId) {
         return "";
     }
-    return `${state.serverUrl}/Items/${itemId}/Images/${imageType}?maxWidth=${maxWidth}&quality=90`;
+    try {
+        const baseUrl = new URL(state.serverUrl);
+        baseUrl.search = "";
+        baseUrl.hash = "";
+
+        const basePath = baseUrl.pathname.replace(/\/+$/, "");
+        const safeItemId = encodeURIComponent(itemId);
+        const safeType = encodeURIComponent(imageType);
+        baseUrl.pathname = `${basePath}/Items/${safeItemId}/Images/${safeType}`;
+        baseUrl.searchParams.set("maxWidth", String(maxWidth));
+        baseUrl.searchParams.set("quality", "90");
+        return baseUrl.toString();
+    } catch (error) {
+        return "";
+    }
 }
 
 function getThumbnailUrl(item: JellyfinBaseItem, options: ListCardOptions = {}): string {
