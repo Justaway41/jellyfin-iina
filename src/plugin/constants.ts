@@ -1,13 +1,12 @@
-export { CLIENT_VERSION } from "../shared/version";
+import { CLIENT_NAME, DEBUG_LOGS, DEVICE_NAME, TICKS_PER_SECOND } from "../shared/constants";
 
-export const CLIENT_NAME = "IINA Jellyfin Plugin";
-export const DEVICE_NAME = "IINA";
+export { CLIENT_VERSION } from "../shared/version";
+export { CLIENT_NAME, DEBUG_LOGS, DEVICE_NAME, TICKS_PER_SECOND };
 
 export const SHOW_SIDEBAR_DELAY_MS = 300;
 export const JELLYFIN_SPLASH_URL =
     "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin.png";
 
-export const TICKS_PER_SECOND = 10000000;
 export const RESUME_SEEK_DELAY_MS = 1000;
 
 export const PROGRESS_REPORT_INTERVAL_MS = 10000;

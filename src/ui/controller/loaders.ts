@@ -23,6 +23,7 @@ import {
     buildSeasonsEndpoint,
     buildSeriesNextUpEndpoint
 } from "../endpoints";
+import { log } from "../utils";
 
 async function fetchAndRenderLibraryItems(options: {
     libraryId: string;
@@ -36,7 +37,7 @@ async function fetchAndRenderLibraryItems(options: {
     try {
         const endpoint = buildLibraryItemsEndpoint(state.userId, options.libraryId, options.collectionType);
         const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-        const items = data.Items || [];
+        const items = data?.Items || [];
 
         state.currentLibrary = {
             id: options.libraryId,
@@ -123,7 +124,7 @@ async function fetchAndRenderEpisodes(options: {
     try {
         const endpoint = buildEpisodesEndpoint(state.userId, options.seriesId, options.seasonId);
         const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-        const episodes = data.Items || [];
+        const episodes = data?.Items || [];
 
         state.currentSeason = { id: options.seasonId, name: options.seasonName };
         state.lastAction = () => fetchAndRenderEpisodes({
@@ -227,13 +228,13 @@ async function loadLatestItems(itemType: string, limit: number): Promise<Jellyfi
 async function loadResumeItems(): Promise<JellyfinBaseItem[]> {
     const endpoint = buildResumeItemsEndpoint(state.userId);
     const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-    return (data.Items || []).filter(item => isSupportedItem(item));
+    return (data?.Items || []).filter(item => isSupportedItem(item));
 }
 
 async function loadNextUpItems(): Promise<JellyfinBaseItem[]> {
     const endpoint = buildNextUpItemsEndpoint(state.userId);
     const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-    return (data.Items || []).filter(item => isSupportedItem(item));
+    return (data?.Items || []).filter(item => isSupportedItem(item));
 }
 
 function mergeItems(primary: JellyfinBaseItem[], secondary: JellyfinBaseItem[]): JellyfinBaseItem[] {
@@ -299,7 +300,7 @@ export async function performSearch(query: string): Promise<void> {
     try {
         const endpoint = buildSearchEndpoint(state.userId, query);
         const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-        const items = (data.Items || []).filter(item => isSupportedItem(item));
+        const items = (data?.Items || []).filter(item => isSupportedItem(item));
 
         hideLoading();
         if (items.length === 0) {
@@ -315,17 +316,17 @@ export async function performSearch(query: string): Promise<void> {
 async function fetchSeasons(seriesId: string): Promise<JellyfinBaseItem[]> {
     const endpoint = buildSeasonsEndpoint(state.userId, seriesId);
     const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-    return data.Items || [];
+    return data?.Items || [];
 }
 
 async function loadNextUpForSeries(seriesId: string): Promise<JellyfinBaseItem | null> {
     try {
         const endpoint = buildSeriesNextUpEndpoint(state.userId, seriesId);
         const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-        const items = (data.Items || []).filter(item => item.Type === "Episode");
+        const items = (data?.Items || []).filter(item => item.Type === "Episode");
         return items[0] || null;
     } catch (error) {
-        console.warn("Failed to load series next up:", error instanceof Error ? error.message : error);
+        log("Failed to load series next up:", error instanceof Error ? error.message : error);
         return null;
     }
 }

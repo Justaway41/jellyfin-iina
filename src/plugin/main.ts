@@ -4,11 +4,11 @@ import { MESSAGE_NAMES } from "../shared/messages";
 import { SHOW_SIDEBAR_DELAY_MS } from "./constants";
 import { handlePlayItem, initializePlaybackHandlers } from "./playback";
 import { clearAuthState, updateAuthState } from "./state";
-import { isHttpsUrl, normalizeServerUrl } from "./utils";
+import { isHttpsUrl, logDebug, normalizeServerUrl } from "./utils";
 
 const { console, event, global, sidebar, utils } = iina;
 
-console.log("Jellyfin: Plugin loaded");
+logDebug("Jellyfin: Plugin loaded");
 
 let windowReady = false;
 let pendingShowSidebar = false;
@@ -51,7 +51,7 @@ function toggleSidebarFromHotkey(): void {
     }
 
     if (getSidebarVisibility()) {
-        console.log("Jellyfin: Sidebar already open, hiding it");
+        logDebug("Jellyfin: Sidebar already open, hiding it");
         hideSidebar();
         return;
     }
@@ -60,7 +60,7 @@ function toggleSidebarFromHotkey(): void {
 }
 
 global.onMessage("showJellyfinSidebar", () => {
-    console.log("Jellyfin: Received showJellyfinSidebar message");
+    logDebug("Jellyfin: Received showJellyfinSidebar message");
     toggleSidebarFromHotkey();
 });
 
@@ -72,12 +72,12 @@ initializePlaybackHandlers({
 });
 
 event.on("iina.window-loaded", () => {
-    console.log("Jellyfin: Window loaded");
+    logDebug("Jellyfin: Window loaded");
 
     sidebar.loadFile("ui/sidebar.html");
 
     sidebar.onMessage(MESSAGE_NAMES.PlayItem, (data: PlayItemPayload) => {
-        console.log("Jellyfin: Received playItem");
+        logDebug("Jellyfin: Received playItem");
         handlePlayItem(data, {
             hideSidebar: hideSidebar,
             showHttpsAlert: showHttpsAlert
@@ -108,10 +108,10 @@ event.on("iina.window-loaded", () => {
     global.postMessage("playerReady", {});
 
     if (pendingShowSidebar) {
-        console.log("Jellyfin: Showing sidebar (pending request)");
+        logDebug("Jellyfin: Showing sidebar (pending request)");
         showSidebarWithDelay();
         pendingShowSidebar = false;
     }
 
-    console.log("Jellyfin: Ready");
+    logDebug("Jellyfin: Ready");
 });

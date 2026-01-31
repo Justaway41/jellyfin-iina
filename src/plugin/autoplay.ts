@@ -1,11 +1,12 @@
 import type { JellyfinBaseItem, JellyfinBaseItemQuery, JellyfinPlaybackInfoResponse } from "../shared/jellyfin";
 
 import { IINA_DEVICE_PROFILE } from "../shared/deviceProfile";
+import { buildJellyfinStreamUrl, buildJellyfinWindowTitle } from "../shared/playback";
 
 import { AUTOPLAY_NEXT_PREF_KEY, FIELDS_EPISODES, FIELDS_SEASONS, ITEM_DETAILS_FIELDS } from "./constants";
 import { requestJson } from "./http";
 import { getAuthState, getCurrentPlayback } from "./state";
-import { buildQueryString, formatError, sanitizeMediaTitle } from "./utils";
+import { formatError, logDebug, sanitizeMediaTitle } from "./utils";
 
 const { console, mpv, preferences } = iina;
 
@@ -46,54 +47,6 @@ function getHttpContext() {
         accessToken: accessToken,
         deviceId: deviceId
     };
-}
-
-function buildStreamUrl(
-    serverUrl: string,
-    accessToken: string,
-    itemId: string,
-    params: Record<string, string | number | boolean | null | undefined>
-): string {
-    const queryString = buildQueryString({
-        Static: "true",
-        api_key: accessToken,
-        _jf_itemId: itemId,
-        ...params
-    });
-    return `${serverUrl}/Videos/${itemId}/stream?${queryString}`;
-}
-
-function buildWindowTitle(item: JellyfinBaseItem | null, fallbackName: string): string {
-    if (!item) {
-        return fallbackName || "";
-    }
-
-    const name = item.Name || fallbackName || "";
-    const type = item.Type;
-
-    if (type === "Episode") {
-        const seriesName = item.SeriesName || "";
-        const seasonNumber = item.ParentIndexNumber;
-        const episodeNumber = item.IndexNumber;
-        const seasonLabel = seasonNumber !== null && seasonNumber !== undefined
-            ? String(seasonNumber).padStart(2, "0")
-            : "00";
-        const episodeLabel = episodeNumber !== null && episodeNumber !== undefined
-            ? String(episodeNumber).padStart(2, "0")
-            : "00";
-        const titleParts = [seriesName, `S${seasonLabel}E${episodeLabel}`];
-        if (name) {
-            titleParts.push(name);
-        }
-        return titleParts.filter(Boolean).join(" • ");
-    }
-
-    if (type === "Movie") {
-        const year = item.ProductionYear ? ` (${item.ProductionYear})` : "";
-        return `${name}${year}`;
-    }
-
-    return name;
 }
 
 
@@ -171,7 +124,7 @@ function queueNextEpisode(url: string, title: string): void {
             mpv.command("loadfile", [url, "insert-next"]);
         }
         playback.autoplayQueued = true;
-        console.log("Jellyfin: Queued next episode");
+        logDebug("Jellyfin: Queued next episode");
     } catch (error) {
         console.error(`Jellyfin: Failed to queue next episode: ${formatError(error)}`);
     }
@@ -307,17 +260,20 @@ async function buildAutoplayStream(itemId: string, context: {
     const mediaSourceId = mediaSource?.Id || itemId;
     const runtimeTicks = mediaSource?.RunTimeTicks || 0;
     const itemDetails = await fetchItemDetails(itemId);
-    const windowTitle = buildWindowTitle(itemDetails, itemDetails?.Name || "");
+    const windowTitle = buildJellyfinWindowTitle(itemDetails, itemDetails?.Name || "");
 
-    const streamUrl = buildStreamUrl(httpContext.serverUrl, httpContext.accessToken, itemId, {
+    const streamUrl = buildJellyfinStreamUrl({
+        serverUrl: httpContext.serverUrl,
+        accessToken: httpContext.accessToken,
+        deviceId: httpContext.deviceId,
+        userId: userId,
+        itemId: itemId,
+        runtimeTicks: runtimeTicks,
         mediaSourceId: mediaSourceId,
         playSessionId: playSessionId,
-        _jf_runtimeTicks: runtimeTicks,
-        _jf_deviceId: httpContext.deviceId,
-        _jf_userId: userId,
-        _jf_seriesId: context.seriesId,
-        _jf_seasonId: context.seasonId,
-        _jf_episodeIndex: context.episodeIndex ?? undefined
+        seriesId: context.seriesId,
+        seasonId: context.seasonId,
+        episodeIndex: context.episodeIndex ?? undefined
     });
 
     return {

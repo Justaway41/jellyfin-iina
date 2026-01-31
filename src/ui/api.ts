@@ -50,7 +50,7 @@ export async function authenticateUser(
     return await response.json();
 }
 
-export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?: unknown): Promise<T> {
+export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?: unknown): Promise<T | null> {
     const baseUrl = normalizeServerUrl(state.serverUrl);
     const url = `${baseUrl}${endpoint}`;
     const headers: Record<string, string> = {
@@ -68,8 +68,6 @@ export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?:
     }
 
     const response = await fetch(url, options);
-    const contentType = response.headers.get("content-type") || "";
-
     if (!response.ok) {
         let errorBody = "";
         try {
@@ -82,15 +80,20 @@ export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?:
     }
 
     if (response.status === 204) {
-        return null as T;
+        return null;
     }
 
-    if (contentType.includes("application/json")) {
-        return await response.json();
+    const responseText = (await response.text()).trim();
+    if (!responseText) {
+        return null;
     }
 
-    const text = await response.text();
-    return (text ? text : null) as T;
+    try {
+        return JSON.parse(responseText) as T;
+    } catch (error) {
+        const snippet = responseText.slice(0, 200);
+        throw new Error(`Expected JSON response for ${endpoint} but got: ${snippet}`.trim());
+    }
 }
 
 export async function fetchServerName(): Promise<string> {
@@ -108,7 +111,7 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem
     return await apiRequest<JellyfinBaseItem>("GET", endpoint);
 }
 
-export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse> {
+export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse | null> {
     return await apiRequest<JellyfinPlaybackInfoResponse>(
         "POST",
         `/Items/${itemId}/PlaybackInfo?UserId=${state.userId}`,

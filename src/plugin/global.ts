@@ -1,8 +1,9 @@
 import { JELLYFIN_SPLASH_URL } from "./constants";
+import { logDebug } from "./utils";
 
 const { console, global, menu } = iina;
 
-console.log("Jellyfin: Global entry loaded");
+logDebug("Jellyfin: Global entry loaded");
 
 let activePlayerId: number | string | null = null;
 let pendingShowSidebar = false;
@@ -10,14 +11,14 @@ let pendingPlayerId: number | string | null = null;
 
 global.onMessage("playerReady", (data, playerId) => {
     const resolvedPlayerId = playerId ?? null;
-    console.log("Jellyfin: Player registered:", resolvedPlayerId);
+    logDebug("Jellyfin: Player registered:", resolvedPlayerId);
     if (resolvedPlayerId === null) {
         return;
     }
     activePlayerId = resolvedPlayerId;
 
     if (pendingShowSidebar && pendingPlayerId !== null && String(pendingPlayerId) === String(resolvedPlayerId)) {
-        console.log("Jellyfin: Sending pending showSidebar to:", resolvedPlayerId);
+        logDebug("Jellyfin: Sending pending showSidebar to:", resolvedPlayerId);
         global.postMessage(resolvedPlayerId, "showJellyfinSidebar", {});
         pendingShowSidebar = false;
         pendingPlayerId = null;
@@ -25,26 +26,26 @@ global.onMessage("playerReady", (data, playerId) => {
 });
 
 global.onMessage("sidebarShown", (data, playerId) => {
-    console.log("Jellyfin: Sidebar shown in player:", playerId);
+    logDebug("Jellyfin: Sidebar shown in player:", playerId);
 });
 
 async function handleMenuAction(): Promise<void> {
-    console.log("Jellyfin: Menu item clicked, activePlayerId =", activePlayerId);
+    logDebug("Jellyfin: Menu item clicked, activePlayerId =", activePlayerId);
 
     if (activePlayerId !== null) {
-        console.log("Jellyfin: Sending showSidebar to existing player:", activePlayerId);
+        logDebug("Jellyfin: Sending showSidebar to existing player:", activePlayerId);
         global.postMessage(activePlayerId, "showJellyfinSidebar", {});
         return;
     }
 
-    console.log("Jellyfin: No active player, creating with splash image");
+    logDebug("Jellyfin: No active player, creating with splash image");
 
     const playerId = global.createPlayerInstance({
         url: JELLYFIN_SPLASH_URL,
         enablePlugins: true
     });
 
-    console.log("Jellyfin: Created player instance:", playerId);
+    logDebug("Jellyfin: Created player instance:", playerId);
 
     activePlayerId = playerId;
     pendingShowSidebar = true;
@@ -63,4 +64,4 @@ const menuItem = menu.item(
     { keyBinding: "Shift+J" }
 );
 menu.addItem(menuItem);
-console.log("Jellyfin: Menu item registered (Shift+J)");
+logDebug("Jellyfin: Menu item registered (Shift+J)");

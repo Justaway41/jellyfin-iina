@@ -17,6 +17,7 @@ import {
     formatError,
     getUrlOrigin,
     isHttpsUrl,
+    logDebug,
     parseEpisodeIndex,
     parseUrlParams,
     redactUrlForLog,
@@ -52,7 +53,7 @@ export function handlePlayItem(
     }
 
     pendingWindowTitle = data.title ? sanitizeMediaTitle(String(data.title)) : null;
-    console.log("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
+    logDebug("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
 
     isReplacingPlayback = true;
     shouldResetPlaylistOnNextLoad = true;
@@ -66,7 +67,7 @@ export function handlePlayItem(
     options.hideSidebar();
 
     if (data.resumeSeconds && data.resumeSeconds > 0) {
-        console.log("Jellyfin: Will seek to", data.resumeSeconds, "seconds");
+        logDebug("Jellyfin: Will seek to", data.resumeSeconds, "seconds");
         setTimeout(() => {
             mpv.set("time-pos", data.resumeSeconds || 0);
         }, RESUME_SEEK_DELAY_MS);
@@ -83,19 +84,22 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         isReplacingPlayback = false;
 
         if (url.includes("Jellyfin.png")) {
-            console.log("Jellyfin: Splash loaded, showing sidebar");
+            logDebug("Jellyfin: Splash loaded, showing sidebar");
+            clearPlaybackState("splash loaded");
             options.showSidebar();
             options.refreshSidebar();
             return;
         }
 
         if (!url.includes("/Videos/") || !url.includes("playSessionId=")) {
+            clearPlaybackState("non-Jellyfin file loaded");
             return;
         }
 
         try {
             const playback = buildPlaybackContextFromUrl(url);
             if (!playback) {
+                clearPlaybackState("missing playback metadata");
                 return;
             }
             if (!isHttpsUrl(playback.serverUrl)) {
@@ -105,7 +109,7 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
 
             startPlaybackSession(playback, options);
         } catch (error) {
-            console.log("Jellyfin: URL parse error:", error instanceof Error ? error.message : error);
+            logDebug("Jellyfin: URL parse error:", error instanceof Error ? error.message : error);
         }
     });
 
@@ -118,7 +122,7 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
             return;
         }
 
-        console.log("Jellyfin: Playback ended");
+        logDebug("Jellyfin: Playback ended");
         void reportPlaybackStopped();
         cleanupPlaybackState();
         handleNoNextEpisode("end of playback", options);
@@ -136,7 +140,7 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         if (!playback) {
             return;
         }
-        console.log(`Jellyfin: Shutdown detected (${reason}), reporting stop`);
+        logDebug(`Jellyfin: Shutdown detected (${reason}), reporting stop`);
         void reportPlaybackStopped();
         cleanupPlaybackState();
     };
@@ -180,7 +184,7 @@ function buildPlaybackContextFromUrl(url: string): PlaybackState | null {
 }
 
 function startPlaybackSession(playback: PlaybackState, options: PlaybackHandlersOptions): void {
-    console.log("Jellyfin: Detected Jellyfin stream, starting playback reporting");
+    logDebug("Jellyfin: Detected Jellyfin stream, starting playback reporting");
     clearSegmentState();
     isReplacingPlayback = false;
 
@@ -220,7 +224,7 @@ function applyWindowTitle(title: string): void {
         mpv.set("force-media-title", title);
     }
 
-    console.log("Jellyfin: Set window title to", title);
+    logDebug("Jellyfin: Set window title to", title);
 }
 
 function getPositionTicks(): number {
@@ -263,8 +267,8 @@ async function reportPlaybackStart(): Promise<void> {
     if (!playback || !httpContext) {
         return;
     }
-    console.log("Jellyfin: Reporting playback start");
-    console.log("Jellyfin: ItemId:", playback.itemId, "PlaySessionId:", playback.playSessionId);
+    logDebug("Jellyfin: Reporting playback start");
+    logDebug("Jellyfin: ItemId:", playback.itemId, "PlaySessionId:", playback.playSessionId);
 
     try {
         const body: JellyfinPlaybackStartInfo = {
@@ -320,7 +324,7 @@ async function reportPlaybackStopped(): Promise<void> {
     }
     const positionTicks = getPositionTicks();
     const resolvedTicks = positionTicks || lastKnownPositionTicks || 0;
-    console.log("Jellyfin: Reporting playback stopped at position:", resolvedTicks / TICKS_PER_SECOND);
+    logDebug("Jellyfin: Reporting playback stopped at position:", resolvedTicks / TICKS_PER_SECOND);
 
     try {
         const body: JellyfinPlaybackStopInfo = {
@@ -380,7 +384,7 @@ function startPlaybackTick(options: PlaybackHandlersOptions): void {
             return;
         }
 
-        console.log("Jellyfin: Playback reached EOF (tick)");
+        logDebug("Jellyfin: Playback reached EOF (tick)");
         void reportPlaybackStopped();
         cleanupPlaybackState();
         handleNoNextEpisode("eof tick", options);
@@ -402,8 +406,19 @@ function cleanupPlaybackState(): void {
     playbackTickCount = 0;
 }
 
+function clearPlaybackState(reason: string): void {
+    const playback = getCurrentPlayback();
+    if (playback || pendingWindowTitle || shouldResetPlaylistOnNextLoad) {
+        logDebug(`Jellyfin: Clearing playback state (${reason})`);
+    }
+    cleanupPlaybackState();
+    pendingWindowTitle = null;
+    shouldResetPlaylistOnNextLoad = false;
+    isReplacingPlayback = false;
+}
+
 function handleNoNextEpisode(reason: string, options: PlaybackHandlersOptions): void {
-    console.log("Jellyfin: No next episode:", reason);
+    logDebug("Jellyfin: No next episode:", reason);
     isReplacingPlayback = true;
     try {
         core.open(JELLYFIN_SPLASH_URL);

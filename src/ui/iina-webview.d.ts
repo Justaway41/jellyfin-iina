@@ -1,8 +1,25 @@
-declare namespace IINA {
-    interface IINAGlobal {
-        postMessage: (name: string, payload: unknown) => void;
-        onMessage: (name: string, handler: (payload: unknown) => void) => void;
+import type {
+    PluginToUiMessageName,
+    PluginToUiMessagePayloads,
+    UiToPluginMessageName,
+    UiToPluginMessagePayloads
+} from "../shared/messages";
+
+declare global {
+    namespace IINA {
+        interface IINAGlobal {
+            postMessage: <Name extends UiToPluginMessageName>(
+                name: Name,
+                payload: UiToPluginMessagePayloads[Name]
+            ) => void;
+            onMessage: <Name extends PluginToUiMessageName>(
+                name: Name,
+                handler: (payload: PluginToUiMessagePayloads[Name]) => void
+            ) => void;
+        }
     }
+
+    const iina: IINA.IINAGlobal;
 }
 
-declare const iina: IINA.IINAGlobal;
+export {};

@@ -88,7 +88,7 @@ function resolveRequest(context: HttpContext, options: HttpRequestOptions): {
     const requestOptions: IINA.HTTPRequestOption<unknown> = {
         params: {},
         headers: headers,
-        data: hasBody ? options.body : {}
+        data: hasBody ? options.body : null
     };
 
     return {

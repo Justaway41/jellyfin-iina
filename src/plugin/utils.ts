@@ -1,3 +1,13 @@
+import { DEBUG_LOGS } from "./constants";
+
+const { console } = iina;
+
+export function logDebug(...args: unknown[]): void {
+    if (DEBUG_LOGS) {
+        console.log(...args);
+    }
+}
+
 export function normalizeServerUrl(url: string): string {
     return url.trim().replace(/\/+$/, "");
 }

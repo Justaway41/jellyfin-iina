@@ -1,11 +1,9 @@
+import { CLIENT_NAME, DEBUG_LOGS, DEVICE_NAME, TICKS_PER_SECOND } from "../shared/constants";
+
 export { CLIENT_VERSION } from "../shared/version";
+export { CLIENT_NAME, DEBUG_LOGS, DEVICE_NAME, TICKS_PER_SECOND };
 
-export const CLIENT_NAME = "IINA Jellyfin Plugin";
-export const DEVICE_NAME = "IINA";
-export const DEBUG_LOGS = false;
-
-export const TICKS_PER_SECOND = 10000000;
-export const TICKS_PER_MINUTE = 600000000;
+export const TICKS_PER_MINUTE = TICKS_PER_SECOND * 60;
 
 export const FIELDS_LIBRARY_ITEMS = "Overview,Genres,MediaSources,UserData,RunTimeTicks,SeriesId,SeasonId";
 export const FIELDS_EPISODES = "Overview,MediaSources,UserData,RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,SeriesId,SeasonId";
