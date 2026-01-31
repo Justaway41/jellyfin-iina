@@ -30,6 +30,7 @@ There is a Bun-based build + typecheck pipeline and no lint/test tooling.
 
 - Build: `bun run build` (outputs to `xyz.brbc.jellyfin.iinaplugin/dist` and `xyz.brbc.jellyfin.iinaplugin/ui/dist`, not committed).
 - Typecheck: `bun run typecheck`.
+- Verify built client version: `bun run verify:built-client-version` (checks `Info.json` version in built outputs).
 - Lint/format: none (do not introduce tooling unless explicitly requested).
 - Tests: none.
 
