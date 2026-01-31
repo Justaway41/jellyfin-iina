@@ -13,7 +13,15 @@ import { requestJson } from "./http";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
 import { getAuthState, getCurrentPlayback, PlaybackState, setCurrentPlayback } from "./state";
-import { formatError, getUrlOrigin, isHttpsUrl, parseEpisodeIndex, parseUrlParams, sanitizeMediaTitle } from "./utils";
+import {
+    formatError,
+    getUrlOrigin,
+    isHttpsUrl,
+    parseEpisodeIndex,
+    parseUrlParams,
+    redactUrlForLog,
+    sanitizeMediaTitle
+} from "./utils";
 
 const { console, core, event, mpv } = iina;
 
@@ -44,7 +52,7 @@ export function handlePlayItem(
     }
 
     pendingWindowTitle = data.title ? sanitizeMediaTitle(String(data.title)) : null;
-    console.log("Jellyfin: Playing URL:", url.substring(0, 80) + "...");
+    console.log("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
 
     isReplacingPlayback = true;
     shouldResetPlaylistOnNextLoad = true;
