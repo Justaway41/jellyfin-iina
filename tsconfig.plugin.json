@@ -6,6 +6,7 @@
     "allowJs": true,
     "lib": ["ES2019"],
     "types": ["iina-plugin-definition"],
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": false
   },

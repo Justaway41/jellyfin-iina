@@ -1,5 +1,6 @@
+export { CLIENT_VERSION } from "../shared/version";
+
 export const CLIENT_NAME = "IINA Jellyfin Plugin";
-export const CLIENT_VERSION = "1.2.1";
 export const DEVICE_NAME = "IINA";
 export const DEBUG_LOGS = false;
 

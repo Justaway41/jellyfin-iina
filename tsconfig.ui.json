@@ -6,6 +6,7 @@
     "allowJs": false,
     "lib": ["ES2019", "DOM", "DOM.Iterable"],
     "types": ["iina-plugin-definition"],
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": false
   },

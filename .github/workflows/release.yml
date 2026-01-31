@@ -32,7 +32,7 @@ jobs:
           const info=JSON.parse(fs.readFileSync("xyz.brbc.jellyfin.iinaplugin/Info.json","utf8"));
           const version=info.version;
           const escapeRegExp=(value)=>value.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
-          const pattern=new RegExp(`CLIENT_VERSION\\s*=\\s*"${escapeRegExp(version)}"`);
+          const pattern=new RegExp(`version\\s*:\\s*"${escapeRegExp(version)}"`);
           const files=[
             "xyz.brbc.jellyfin.iinaplugin/dist/main.js",
             "xyz.brbc.jellyfin.iinaplugin/dist/global.js",
