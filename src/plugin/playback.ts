@@ -120,8 +120,7 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
 
         console.log("Jellyfin: Playback ended");
         void reportPlaybackStopped();
-        stopPlaybackTick();
-        clearSegmentState();
+        cleanupPlaybackState();
         handleNoNextEpisode("end of playback", options);
     });
 
@@ -139,7 +138,7 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         }
         console.log(`Jellyfin: Shutdown detected (${reason}), reporting stop`);
         void reportPlaybackStopped();
-        clearSegmentState();
+        cleanupPlaybackState();
     };
 
     event.on("iina.window-will-close", () => {
@@ -383,8 +382,7 @@ function startPlaybackTick(options: PlaybackHandlersOptions): void {
 
         console.log("Jellyfin: Playback reached EOF (tick)");
         void reportPlaybackStopped();
-        stopPlaybackTick();
-        clearSegmentState();
+        cleanupPlaybackState();
         handleNoNextEpisode("eof tick", options);
     }, PLAYBACK_TICK_INTERVAL_MS);
 }
@@ -396,12 +394,16 @@ function stopPlaybackTick(): void {
     }
 }
 
+function cleanupPlaybackState(): void {
+    stopPlaybackTick();
+    clearSegmentState();
+    setCurrentPlayback(null);
+    lastKnownPositionTicks = 0;
+    playbackTickCount = 0;
+}
+
 function handleNoNextEpisode(reason: string, options: PlaybackHandlersOptions): void {
     console.log("Jellyfin: No next episode:", reason);
-    clearSegmentState();
-    stopPlaybackTick();
-    setCurrentPlayback(null);
-
     isReplacingPlayback = true;
     try {
         core.open(JELLYFIN_SPLASH_URL);
