@@ -1,3 +1,4 @@
+import { buildMediaBrowserAuthorizationHeader } from "../shared/auth";
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME } from "./constants";
 import { buildQueryString, isHttpsUrl, normalizeServerUrl } from "./utils";
 
@@ -20,18 +21,13 @@ export interface HttpRequestOptions {
 }
 
 function buildAuthHeader(context: HttpContext): string {
-    const parts = [
-        `Client="${CLIENT_NAME}"`,
-        `Device="${DEVICE_NAME}"`,
-        `DeviceId="${context.deviceId}"`,
-        `Version="${CLIENT_VERSION}"`
-    ];
-
-    if (context.accessToken) {
-        parts.push(`Token="${context.accessToken}"`);
-    }
-
-    return `MediaBrowser ${parts.join(", ")}`;
+    return buildMediaBrowserAuthorizationHeader({
+        clientName: CLIENT_NAME,
+        deviceName: DEVICE_NAME,
+        deviceId: context.deviceId,
+        version: CLIENT_VERSION,
+        token: context.accessToken
+    });
 }
 
 function buildUrl(context: HttpContext, endpoint: string, query?: HttpRequestOptions["query"]): string {

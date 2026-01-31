@@ -5,6 +5,8 @@ import type {
     JellyfinPublicSystemInfo
 } from "../shared/jellyfin";
 
+import { buildMediaBrowserAuthorizationHeader } from "../shared/auth";
+
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME, ITEM_DETAILS_FIELDS } from "./constants";
 import { state } from "./state";
 import { getDeviceId } from "./storage";
@@ -13,18 +15,13 @@ import { normalizeServerUrl } from "./utils";
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 function buildAuthHeader(accessToken: string): string {
-    const parts = [
-        `Client="${CLIENT_NAME}"`,
-        `Device="${DEVICE_NAME}"`,
-        `DeviceId="${getDeviceId()}"`,
-        `Version="${CLIENT_VERSION}"`
-    ];
-
-    if (accessToken) {
-        parts.push(`Token="${accessToken}"`);
-    }
-
-    return `MediaBrowser ${parts.join(", ")}`;
+    return buildMediaBrowserAuthorizationHeader({
+        clientName: CLIENT_NAME,
+        deviceName: DEVICE_NAME,
+        deviceId: getDeviceId(),
+        version: CLIENT_VERSION,
+        token: accessToken
+    });
 }
 
 export async function authenticateUser(
