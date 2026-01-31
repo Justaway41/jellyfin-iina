@@ -24,10 +24,11 @@ xyz.brbc.jellyfin.iinaplugin/ui/dist/
 # Env files
 .env
 .env.*
+.envrc
 
 # Local tooling
+.direnv/
 .opencode/
-AGENTS.md
 
 # IINA artifacts
 *.iinaplgz
