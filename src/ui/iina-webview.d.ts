@@ -4,3 +4,5 @@ declare namespace IINA {
         onMessage: (name: string, handler: (payload: unknown) => void) => void;
     }
 }
+
+declare const iina: IINA.IINAGlobal;
