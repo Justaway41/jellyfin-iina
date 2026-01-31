@@ -6,6 +6,7 @@ import type {
 } from "../shared/jellyfin";
 
 import { buildMediaBrowserAuthorizationHeader } from "../shared/auth";
+import { IINA_DEVICE_PROFILE } from "../shared/deviceProfile";
 
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME, ITEM_DETAILS_FIELDS } from "./constants";
 import { state } from "./state";
@@ -112,28 +113,7 @@ export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybac
         "POST",
         `/Items/${itemId}/PlaybackInfo?UserId=${state.userId}`,
         {
-            DeviceProfile: getDeviceProfile()
+            DeviceProfile: IINA_DEVICE_PROFILE
         }
     );
-}
-
-export function getDeviceProfile() {
-    return {
-        MaxStreamingBitrate: 120000000,
-        MaxStaticBitrate: 100000000,
-        MusicStreamingTranscodingBitrate: 384000,
-        DirectPlayProfiles: [
-            { Container: "mp4,m4v,mkv,webm,avi,mov", Type: "Video" },
-            { Container: "mp3,flac,aac,m4a,ogg,opus,wav", Type: "Audio" }
-        ],
-        TranscodingProfiles: [],
-        ContainerProfiles: [],
-        CodecProfiles: [],
-        SubtitleProfiles: [
-            { Format: "srt", Method: "External" },
-            { Format: "ass", Method: "External" },
-            { Format: "ssa", Method: "External" },
-            { Format: "vtt", Method: "External" }
-        ]
-    };
 }

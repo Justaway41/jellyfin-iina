@@ -1,5 +1,7 @@
 import type { JellyfinBaseItem, JellyfinBaseItemQuery, JellyfinPlaybackInfoResponse } from "../shared/jellyfin";
 
+import { IINA_DEVICE_PROFILE } from "../shared/deviceProfile";
+
 import { AUTOPLAY_NEXT_PREF_KEY, FIELDS_EPISODES, FIELDS_SEASONS, ITEM_DETAILS_FIELDS } from "./constants";
 import { requestJson } from "./http";
 import { getAuthState, getCurrentPlayback } from "./state";
@@ -94,26 +96,6 @@ function buildWindowTitle(item: JellyfinBaseItem | null, fallbackName: string): 
     return name;
 }
 
-function getDeviceProfile() {
-    return {
-        MaxStreamingBitrate: 120000000,
-        MaxStaticBitrate: 100000000,
-        MusicStreamingTranscodingBitrate: 384000,
-        DirectPlayProfiles: [
-            { Container: "mp4,m4v,mkv,webm,avi,mov", Type: "Video" },
-            { Container: "mp3,flac,aac,m4a,ogg,opus,wav", Type: "Audio" }
-        ],
-        TranscodingProfiles: [],
-        ContainerProfiles: [],
-        CodecProfiles: [],
-        SubtitleProfiles: [
-            { Format: "srt", Method: "External" },
-            { Format: "ass", Method: "External" },
-            { Format: "ssa", Method: "External" },
-            { Format: "vtt", Method: "External" }
-        ]
-    };
-}
 
 function getPlaybackItemIdFromPlaylistEntry(entry: { filename?: string } | null): string {
     if (!entry || !entry.filename) {
@@ -316,7 +298,7 @@ async function buildAutoplayStream(itemId: string, context: {
             UserId: userId
         },
         body: {
-            DeviceProfile: getDeviceProfile()
+            DeviceProfile: IINA_DEVICE_PROFILE
         }
     });
 
