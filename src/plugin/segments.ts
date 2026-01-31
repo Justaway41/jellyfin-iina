@@ -58,6 +58,9 @@ function shouldShowSkipOverlay(segment: NormalizedSegment | null): boolean {
     if (segment.endSeconds === null || segment.endSeconds === undefined) {
         return false;
     }
+    if (segment.startSeconds === null || segment.startSeconds === undefined) {
+        return false;
+    }
     return segment.endSeconds > segment.startSeconds;
 }
 
@@ -75,10 +78,12 @@ function normalizeSegments(
             if (!type) {
                 return null;
             }
-            const hasStart = segment.StartTicks !== undefined && segment.StartTicks !== null;
-            const hasEnd = segment.EndTicks !== undefined && segment.EndTicks !== null;
-            let startSeconds = hasStart ? segment.StartTicks / TICKS_PER_SECOND : null;
-            let endSeconds = hasEnd ? segment.EndTicks / TICKS_PER_SECOND : null;
+            const startTicks = segment.StartTicks;
+            const endTicks = segment.EndTicks;
+            const hasStart = typeof startTicks === "number";
+            const hasEnd = typeof endTicks === "number";
+            let startSeconds = hasStart ? startTicks / TICKS_PER_SECOND : null;
+            let endSeconds = hasEnd ? endTicks / TICKS_PER_SECOND : null;
 
             if (type === "Intro" && startSeconds === null && endSeconds !== null) {
                 startSeconds = 0;

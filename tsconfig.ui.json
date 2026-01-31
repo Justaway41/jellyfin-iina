@@ -8,7 +8,7 @@
     "types": ["iina-plugin-definition"],
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "strict": false
+    "strict": true
   },
   "include": ["src/ui/**/*.ts", "src/shared/**/*.ts"]
 }

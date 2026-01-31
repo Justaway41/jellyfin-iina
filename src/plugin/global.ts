@@ -9,12 +9,16 @@ let pendingShowSidebar = false;
 let pendingPlayerId: number | string | null = null;
 
 global.onMessage("playerReady", (data, playerId) => {
-    console.log("Jellyfin: Player registered:", playerId);
-    activePlayerId = playerId;
+    const resolvedPlayerId = playerId ?? null;
+    console.log("Jellyfin: Player registered:", resolvedPlayerId);
+    if (resolvedPlayerId === null) {
+        return;
+    }
+    activePlayerId = resolvedPlayerId;
 
-    if (pendingShowSidebar && pendingPlayerId === playerId) {
-        console.log("Jellyfin: Sending pending showSidebar to:", playerId);
-        global.postMessage(playerId, "showJellyfinSidebar", {});
+    if (pendingShowSidebar && pendingPlayerId !== null && String(pendingPlayerId) === String(resolvedPlayerId)) {
+        console.log("Jellyfin: Sending pending showSidebar to:", resolvedPlayerId);
+        global.postMessage(resolvedPlayerId, "showJellyfinSidebar", {});
         pendingShowSidebar = false;
         pendingPlayerId = null;
     }

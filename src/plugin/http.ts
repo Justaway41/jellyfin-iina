@@ -43,19 +43,19 @@ function buildUrl(context: HttpContext, endpoint: string, query?: HttpRequestOpt
 async function sendRequest<ResData>(
     method: HttpMethod,
     url: string,
-    options: IINA.HTTPRequestOption
+    options: IINA.HTTPRequestOption<unknown>
 ): Promise<IINA.HTTPResponse<ResData>> {
     switch (method) {
         case "GET":
-            return http.get(url, options);
+            return http.get<unknown, ResData>(url, options);
         case "POST":
-            return http.post(url, options);
+            return http.post<unknown, ResData>(url, options);
         case "PUT":
-            return http.put(url, options);
+            return http.put<unknown, ResData>(url, options);
         case "PATCH":
-            return http.patch(url, options);
+            return http.patch<unknown, ResData>(url, options);
         case "DELETE":
-            return http.delete(url, options);
+            return http.delete<unknown, ResData>(url, options);
         default:
             throw new Error(`Unsupported HTTP method: ${method}`);
     }
@@ -63,7 +63,7 @@ async function sendRequest<ResData>(
 
 function resolveRequest(context: HttpContext, options: HttpRequestOptions): {
     url: string;
-    requestOptions: IINA.HTTPRequestOption;
+    requestOptions: IINA.HTTPRequestOption<unknown>;
 } {
     const normalizedUrl = normalizeServerUrl(context.serverUrl);
     if (!isHttpsUrl(normalizedUrl)) {
@@ -85,7 +85,7 @@ function resolveRequest(context: HttpContext, options: HttpRequestOptions): {
         headers["Content-Type"] = "application/json";
     }
 
-    const requestOptions: IINA.HTTPRequestOption = {
+    const requestOptions: IINA.HTTPRequestOption<unknown> = {
         params: {},
         headers: headers,
         data: hasBody ? options.body : {}
