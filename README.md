@@ -13,6 +13,7 @@ Plugin for accessing Movies and TV series from your Jellyfin server in IINA. Dis
 
 - Open the Jellyfin sidebar with Shift+J.
 - On next open you can use the "Resume Jellyfin.png" option in Recent Items to skip the select video dialog.
+- Warning: **https is required** since v2.0.0
 
 ## Features
 
