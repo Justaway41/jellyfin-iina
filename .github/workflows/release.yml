@@ -25,6 +25,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Verify root update manifest
+        run: bun run verify:root-info
+
       - name: Build
         run: bun run build
 

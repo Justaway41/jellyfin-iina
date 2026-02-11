@@ -8,6 +8,7 @@ This guidance is for agentic coding assistants working in this repository. It do
 - Runtime environments:
   - Plugin context (`xyz.brbc.jellyfin.iinaplugin/dist/main.js`, `xyz.brbc.jellyfin.iinaplugin/dist/global.js`): IINA plugin JS runtime (not Node.js), built from `src/plugin/`.
   - Sidebar webview (`xyz.brbc.jellyfin.iinaplugin/ui/sidebar.html`, `xyz.brbc.jellyfin.iinaplugin/ui/dist/sidebar.js`): browser-like webview environment with DOM and `fetch()`, built from `src/ui/`.
+  - Preferences page (`xyz.brbc.jellyfin.iinaplugin/ui/preferences.html`): static HTML loaded by IINA's plugin preferences UI.
 - Languages: TypeScript (source), compiled JavaScript, HTML, CSS.
 - Bun-only tooling for build/typecheck. Do not introduce Node-based tooling without explicit request.
 
@@ -16,9 +17,11 @@ This guidance is for agentic coding assistants working in this repository. It do
 - `src/plugin/`: plugin TypeScript sources (compiled to `xyz.brbc.jellyfin.iinaplugin/dist`).
 - `src/ui/`: sidebar TypeScript sources (compiled to `xyz.brbc.jellyfin.iinaplugin/ui/dist`).
 - `src/shared/`: shared message + Jellyfin types for plugin and UI.
+- `Info.json` (repo root): minimal update manifest for IINA update checks (`identifier`, `version`, `ghVersion`).
 - `xyz.brbc.jellyfin.iinaplugin/Info.json`: plugin manifest, entrypoints, permissions.
 - `xyz.brbc.jellyfin.iinaplugin/dist/`: generated plugin runtime output (do not edit manually).
 - `xyz.brbc.jellyfin.iinaplugin/ui/sidebar.html`: sidebar webview template.
+- `xyz.brbc.jellyfin.iinaplugin/ui/preferences.html`: plugin preferences template.
 - `xyz.brbc.jellyfin.iinaplugin/ui/dist/`: generated sidebar runtime output (do not edit manually).
 - `xyz.brbc.jellyfin.iinaplugin/ui/sidebar.css`: sidebar styling.
 - `xyz.brbc.jellyfin.iinaplugin/assets/`: plugin assets (splash image, etc).
@@ -30,6 +33,8 @@ There is a Bun-based build + typecheck pipeline and no lint/test tooling.
 
 - Build: `bun run build` (outputs to `xyz.brbc.jellyfin.iinaplugin/dist` and `xyz.brbc.jellyfin.iinaplugin/ui/dist`, not committed).
 - Typecheck: `bun run typecheck`.
+- Sync root update manifest: `bun run sync:root-info`.
+- Verify root update manifest: `bun run verify:root-info`.
 - Verify built client version: `bun run verify:built-client-version` (checks `Info.json` version in built outputs).
 - Lint/format: none (do not introduce tooling unless explicitly requested).
 - Tests: none.
@@ -149,6 +154,7 @@ To test changes locally in IINA:
 ## Files to Treat Carefully
 
 - `xyz.brbc.jellyfin.iinaplugin/Info.json`: manifest, permissions, entrypoints.
+- `Info.json` (repo root): minimal update manifest used by IINA's GitHub update check.
 - `src/plugin/`: playback lifecycle + reporting + autoplay + segments (source of truth).
 - `src/ui/`: browsing/search + login UI (source of truth).
 - `src/shared/`: shared message + Jellyfin types used by plugin and UI.
@@ -159,5 +165,7 @@ To test changes locally in IINA:
 - Prefer small, targeted edits aligned with existing patterns.
 - Releases are published as `.iinaplgz` assets built in CI; `dist/` is not committed.
 - GitHub installs pull from release assets, not the repository contents.
+- IINA update checks read `Info.json` from repo root (`raw.githubusercontent.com/<repo>/master/Info.json`).
+- Keep root `Info.json` minimal and in sync with `xyz.brbc.jellyfin.iinaplugin/Info.json`.
 - Use `bun.lock` (not `bun.lockb`).
 - If unsure about IINA API behavior, consult https://docs.iina.io/pages/creating-plugins.html.

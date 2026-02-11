@@ -7,6 +7,8 @@
     "build:plugin": "bun build src/plugin/main.ts src/plugin/global.ts --outdir xyz.brbc.jellyfin.iinaplugin/dist --target=browser --format=iife",
     "build:ui": "bun build src/ui/sidebar.ts --outdir xyz.brbc.jellyfin.iinaplugin/ui/dist --target=browser --format=iife",
     "clean": "rm -rf xyz.brbc.jellyfin.iinaplugin/dist xyz.brbc.jellyfin.iinaplugin/ui/dist",
+    "sync:root-info": "bun scripts/sync-root-info.js",
+    "verify:root-info": "bun scripts/verify-root-info.js",
     "verify:built-client-version": "bun scripts/verify-built-client-version.js"
   },
   "devDependencies": {
