@@ -43,6 +43,7 @@ export interface SidebarState {
     userId: string;
     deviceId: string;
     username: string;
+    preferEpisodeImagesInNextUp: boolean;
     searchQuery: string;
     currentLibrary: LibraryState | null;
     currentSeries: SeriesState | null;
@@ -58,6 +59,7 @@ export const state: SidebarState = {
     userId: "",
     deviceId: "",
     username: "",
+    preferEpisodeImagesInNextUp: false,
     searchQuery: "",
     currentLibrary: null,
     currentSeries: null,

@@ -8,6 +8,8 @@ export interface ListCardOptions {
     showSeriesName?: boolean;
     showEpisodeNumber?: boolean;
     useEpisodeThumbnail?: boolean;
+    disableEpisodeThumbnailFallback?: boolean;
+    useSeriesBackdropFallback?: boolean;
     showSeriesEpisodeCounts?: boolean;
 }
 
@@ -112,9 +114,11 @@ export function renderHomeSections(
             const list = document.createElement("div");
             list.className = "media-list";
             items.forEach(item => {
+                const isUpNextSection = section.title === "Up Next";
                 list.appendChild(buildListCardElement(item, {
-                    showSeriesName: section.title === "Up Next" || section.title === "Latest TV",
-                    showEpisodeNumber: true
+                    showSeriesName: isUpNextSection || section.title === "Latest TV",
+                    showEpisodeNumber: true,
+                    ...(isUpNextSection ? getNextUpImageOptions() : {})
                 }));
             });
             sectionEl.appendChild(list);
@@ -142,7 +146,7 @@ export function renderSeriesOverview(nextUpItem: JellyfinBaseItem | null, season
         list.appendChild(buildListCardElement(nextUpItem, {
             showSeriesName: false,
             showEpisodeNumber: true,
-            useEpisodeThumbnail: true
+            ...getNextUpImageOptions()
         }));
         section.appendChild(list);
 
@@ -334,11 +338,23 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
         ? String(item.IndexNumber)
         : "";
     const thumbnailUrl = getThumbnailUrl(item, options);
-    const useEpisodeFallback = Boolean(options.useEpisodeThumbnail && item.Type === "Episode" && seriesId);
+    const useEpisodeFallback = Boolean(
+        options.useEpisodeThumbnail &&
+        item.Type === "Episode" &&
+        seriesId &&
+        !options.disableEpisodeThumbnailFallback
+    );
+    const useSeriesBackdropFallback = Boolean(
+        options.useSeriesBackdropFallback &&
+        item.Type === "Episode" &&
+        seriesId
+    );
     const useBackdropFallback = item.Type === "Movie" || item.Type === "Series";
     const fallbackThumbnailUrl = useEpisodeFallback
         ? getImageUrl(seriesId, "Thumb", 160)
-        : (useBackdropFallback ? getImageUrl(item.Id || "", "Backdrop", 320) : "");
+        : (useSeriesBackdropFallback
+            ? getImageUrl(seriesId, "Backdrop", 320)
+            : (useBackdropFallback ? getImageUrl(item.Id || "", "Backdrop", 320) : ""));
     const displayName = item.Name ? String(item.Name) : "";
 
     const card = document.createElement("div");
@@ -522,6 +538,20 @@ function getThumbnailUrl(item: JellyfinBaseItem, options: ListCardOptions = {}):
 
     const imageId = item.Type === "Episode" && item.SeriesId ? item.SeriesId : item.Id || "";
     return getImageUrl(imageId, "Thumb", 160);
+}
+
+function getNextUpImageOptions(): ListCardOptions {
+    if (state.preferEpisodeImagesInNextUp) {
+        return {
+            useEpisodeThumbnail: true,
+            disableEpisodeThumbnailFallback: true
+        };
+    }
+
+    return {
+        useEpisodeThumbnail: false,
+        useSeriesBackdropFallback: true
+    };
 }
 
 function handleImageFallback(imageElement: HTMLImageElement): void {

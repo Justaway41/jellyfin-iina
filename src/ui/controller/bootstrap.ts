@@ -1,3 +1,5 @@
+import type { SidebarPreferencesPayload } from "../../shared/messages";
+
 import { MESSAGE_NAMES } from "../../shared/messages";
 import { state } from "../state";
 import { getDeviceId } from "../storage";
@@ -5,9 +7,18 @@ import { setupEventListeners } from "./events";
 import { goHomeFresh } from "./navigation";
 import { restoreSessionFromStorage } from "./session";
 
+function applySidebarPreferences(payload: SidebarPreferencesPayload): void {
+    const preferEpisodeImagesInNextUp = Boolean(payload?.preferEpisodeImagesInNextUp);
+    state.preferEpisodeImagesInNextUp = preferEpisodeImagesInNextUp;
+}
+
 export function initSidebar(): void {
     let sidebarReady = false;
     let pendingSidebarRefresh = false;
+
+    iina.onMessage(MESSAGE_NAMES.SidebarPreferences, (payload: SidebarPreferencesPayload) => {
+        applySidebarPreferences(payload);
+    });
 
     iina.onMessage(MESSAGE_NAMES.RefreshSidebar, () => {
         if (!sidebarReady) {

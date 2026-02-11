@@ -2,7 +2,8 @@ export const MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
     PlayItem: "playItem",
-    RefreshSidebar: "refreshSidebar"
+    RefreshSidebar: "refreshSidebar",
+    SidebarPreferences: "sidebarPreferences"
 } as const;
 
 export type MessageName = typeof MESSAGE_NAMES[keyof typeof MESSAGE_NAMES];
@@ -28,6 +29,10 @@ export interface PlayItemPayload {
 
 export type RefreshSidebarPayload = EmptyPayload;
 
+export interface SidebarPreferencesPayload {
+    preferEpisodeImagesInNextUp: boolean;
+}
+
 export interface UiToPluginMessagePayloads {
     authUpdated: AuthUpdatedPayload;
     authCleared: AuthClearedPayload;
@@ -36,6 +41,7 @@ export interface UiToPluginMessagePayloads {
 
 export interface PluginToUiMessagePayloads {
     refreshSidebar: RefreshSidebarPayload;
+    sidebarPreferences: SidebarPreferencesPayload;
 }
 
 export type MessagePayloads = UiToPluginMessagePayloads & PluginToUiMessagePayloads;

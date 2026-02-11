@@ -1,12 +1,15 @@
 import type { AuthUpdatedPayload, PlayItemPayload } from "../shared/messages";
 
 import { MESSAGE_NAMES } from "../shared/messages";
-import { SHOW_SIDEBAR_DELAY_MS } from "./constants";
+import {
+    PREFER_EPISODE_IMAGES_IN_NEXT_UP_PREF_KEY,
+    SHOW_SIDEBAR_DELAY_MS
+} from "./constants";
 import { handlePlayItem, initializePlaybackHandlers } from "./playback";
 import { clearAuthState, updateAuthState } from "./state";
 import { isHttpsUrl, logDebug, normalizeServerUrl } from "./utils";
 
-const { console, event, global, sidebar, utils } = iina;
+const { console, event, global, preferences, sidebar, utils } = iina;
 
 logDebug("Jellyfin: Plugin loaded");
 
@@ -42,6 +45,17 @@ function hideSidebar(): void {
 
 function showHttpsAlert(): void {
     utils.ask("Jellyfin requires an https:// server URL. HTTP is not supported.");
+}
+
+function getPreferEpisodeImagesInNextUp(): boolean {
+    const value = preferences.get(PREFER_EPISODE_IMAGES_IN_NEXT_UP_PREF_KEY);
+    return Boolean(value);
+}
+
+function postSidebarPreferences(): void {
+    sidebar.postMessage(MESSAGE_NAMES.SidebarPreferences, {
+        preferEpisodeImagesInNextUp: getPreferEpisodeImagesInNextUp()
+    });
 }
 
 function toggleSidebarFromHotkey(): void {
@@ -97,6 +111,7 @@ event.on("iina.window-loaded", () => {
             ...data,
             serverUrl: normalizedUrl
         });
+        postSidebarPreferences();
     });
 
     sidebar.onMessage(MESSAGE_NAMES.AuthCleared, () => {
