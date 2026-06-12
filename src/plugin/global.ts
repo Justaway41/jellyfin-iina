@@ -29,6 +29,20 @@ global.onMessage("sidebarShown", (data, playerId) => {
     logDebug("Jellyfin: Sidebar shown in player:", playerId);
 });
 
+global.onMessage("playerClosed", (data, playerId) => {
+    logDebug("Jellyfin: Player closed:", playerId);
+    if (playerId === undefined || playerId === null) {
+        return;
+    }
+    if (activePlayerId !== null && String(playerId) === String(activePlayerId)) {
+        activePlayerId = null;
+    }
+    if (pendingPlayerId !== null && String(playerId) === String(pendingPlayerId)) {
+        pendingShowSidebar = false;
+        pendingPlayerId = null;
+    }
+});
+
 async function handleMenuAction(): Promise<void> {
     logDebug("Jellyfin: Menu item clicked, activePlayerId =", activePlayerId);
 

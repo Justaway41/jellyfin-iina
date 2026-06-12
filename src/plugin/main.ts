@@ -9,7 +9,7 @@ import { handlePlayItem, initializePlaybackHandlers } from "./playback";
 import { clearAuthState, updateAuthState } from "./state";
 import { isSupportedServerUrl, logDebug, normalizeServerUrl } from "./utils";
 
-const { console, event, global, preferences, sidebar, utils } = iina;
+const { console, core, event, global, preferences, sidebar, utils } = iina;
 
 logDebug("Jellyfin: Plugin loaded");
 
@@ -21,6 +21,15 @@ function getSidebarVisibility(): boolean {
     const sidebarWithVisibility = sidebar as typeof sidebar & { isVisible?: () => boolean };
     if (typeof sidebarWithVisibility.isVisible === "function") {
         return sidebarWithVisibility.isVisible();
+    }
+
+    try {
+        const currentSidebar = core.window.sidebar;
+        if (currentSidebar !== undefined) {
+            return typeof currentSidebar === "string" && currentSidebar.includes("jellyfin");
+        }
+    } catch (error) {
+        logDebug("Jellyfin: Failed to read window sidebar state:", error);
     }
 
     return sidebarVisible;
@@ -121,6 +130,11 @@ event.on("iina.window-loaded", () => {
     windowReady = true;
 
     global.postMessage("playerReady", {});
+
+    event.on("iina.window-will-close", () => {
+        logDebug("Jellyfin: Window closing, notifying global entry");
+        global.postMessage("playerClosed", {});
+    });
 
     if (pendingShowSidebar) {
         logDebug("Jellyfin: Showing sidebar (pending request)");
