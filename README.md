@@ -32,8 +32,7 @@ Restart IINA after linking. Re-run `bun run build` and restart IINA to pick up c
 
 ## Usage
 
-- Open the Jellyfin sidebar with Shift+J.
-- On next open you can use the "Resume Jellyfin.png" option in Recent Items to skip the select video dialog.
+- Open the Jellyfin sidebar with Shift+J (also available from the Plugin menu).
 - Both `http://` and `https://` server URLs are supported. Plain http sends your credentials and media unencrypted, so only use it on a trusted network (e.g. Tailscale/VPN or localhost).
 
 ## Features

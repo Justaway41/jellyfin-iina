@@ -4,8 +4,16 @@ export { CLIENT_VERSION } from "../shared/version";
 export { CLIENT_NAME, DEBUG_LOGS, DEVICE_NAME, TICKS_PER_SECOND };
 
 export const SHOW_SIDEBAR_DELAY_MS = 300;
-export const JELLYFIN_SPLASH_URL =
-    "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin.png";
+
+const PLUGINS_DIR = "~/Library/Application Support/com.colliderli.iina/plugins";
+// Extension-less on purpose: IINA titles local files with the raw filename
+// (force-media-title is ignored for non-network resources), so the file name
+// is what shows in the title bar. mpv detects the image format by content.
+export const JELLYFIN_SPLASH_CANDIDATES = [
+    `${PLUGINS_DIR}/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin`,
+    `${PLUGINS_DIR}/xyz.brbc.jellyfin.iinaplugin-dev/assets/Jellyfin`
+];
+export const SPLASH_URL_MARKER = "assets/Jellyfin";
 
 export const RESUME_SEEK_DELAY_MS = 1000;
 

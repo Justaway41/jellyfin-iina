@@ -1,13 +1,17 @@
-import { JELLYFIN_SPLASH_URL } from "./constants";
-import { logDebug } from "./utils";
+import { applySplashIcon, getSplashUrl, logDebug } from "./utils";
 
 const { console, global, menu } = iina;
 
 logDebug("Jellyfin: Global entry loaded");
+applySplashIcon();
 
 let activePlayerId: number | string | null = null;
-let pendingShowSidebar = false;
-let pendingPlayerId: number | string | null = null;
+
+// createPlayerInstance returns a bare counter ("1") while message callbacks
+// receive the player label ("1-<plugin id>"); compare on the counter part.
+function playerIdsMatch(a: number | string, b: number | string): boolean {
+    return String(a).split("-")[0] === String(b).split("-")[0];
+}
 
 global.onMessage("playerReady", (data, playerId) => {
     const resolvedPlayerId = playerId ?? null;
@@ -16,13 +20,6 @@ global.onMessage("playerReady", (data, playerId) => {
         return;
     }
     activePlayerId = resolvedPlayerId;
-
-    if (pendingShowSidebar && pendingPlayerId !== null && String(pendingPlayerId) === String(resolvedPlayerId)) {
-        logDebug("Jellyfin: Sending pending showSidebar to:", resolvedPlayerId);
-        global.postMessage(resolvedPlayerId, "showJellyfinSidebar", {});
-        pendingShowSidebar = false;
-        pendingPlayerId = null;
-    }
 });
 
 global.onMessage("sidebarShown", (data, playerId) => {
@@ -34,12 +31,8 @@ global.onMessage("playerClosed", (data, playerId) => {
     if (playerId === undefined || playerId === null) {
         return;
     }
-    if (activePlayerId !== null && String(playerId) === String(activePlayerId)) {
+    if (activePlayerId !== null && playerIdsMatch(playerId, activePlayerId)) {
         activePlayerId = null;
-    }
-    if (pendingPlayerId !== null && String(playerId) === String(pendingPlayerId)) {
-        pendingShowSidebar = false;
-        pendingPlayerId = null;
     }
 });
 
@@ -54,18 +47,19 @@ async function handleMenuAction(): Promise<void> {
 
     logDebug("Jellyfin: No active player, creating with splash image");
 
+    // disableUI hides the on-screen controls from the first frame; the main
+    // entry re-enables them once real media loads (setPlayerUIHidden(false)).
     const playerId = global.createPlayerInstance({
-        url: JELLYFIN_SPLASH_URL,
-        enablePlugins: true
+        url: getSplashUrl(),
+        enablePlugins: true,
+        disableUI: true
     });
 
     logDebug("Jellyfin: Created player instance:", playerId);
 
     activePlayerId = playerId;
-    pendingShowSidebar = true;
-    pendingPlayerId = playerId;
-
-    global.postMessage(null, "showJellyfinSidebar", {});
+    // No explicit show message needed: the splash file load triggers the
+    // sidebar via the file-loaded handler in the player's main entry.
 }
 
 const menuItem = menu.item(
@@ -75,7 +69,7 @@ const menuItem = menu.item(
             console.error(`Jellyfin: Error in menu handler: ${error instanceof Error ? error.message : String(error)}`);
         });
     },
-    { keyBinding: "Shift+J" }
+    { keyBinding: "Shift+j" }
 );
 menu.addItem(menuItem);
 logDebug("Jellyfin: Menu item registered (Shift+J)");

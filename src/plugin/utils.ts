@@ -1,6 +1,49 @@
-import { DEBUG_LOGS } from "./constants";
+import { DEBUG_LOGS, JELLYFIN_SPLASH_CANDIDATES } from "./constants";
 
 const { console } = iina;
+
+export function getSplashUrl(): string {
+    const { file } = iina;
+    for (const candidate of JELLYFIN_SPLASH_CANDIDATES) {
+        try {
+            if (file.exists(candidate)) {
+                return candidate;
+            }
+        } catch (error) {
+            logDebug("Jellyfin: Splash existence check failed:", error);
+        }
+    }
+    return JELLYFIN_SPLASH_CANDIDATES[0];
+}
+
+// The splash file's Finder icon doubles as the window's title-bar proxy icon.
+// Set it to the Jellyfin logo via NSWorkspace (osascript ObjC bridge) so the
+// title bar doesn't show a blank document icon. Idempotent; runs per launch.
+export function applySplashIcon(): void {
+    const { utils } = iina;
+    const splashPath = getSplashUrl();
+    const iconPath = splashPath.replace("/assets/Jellyfin", "/ui/assets/jellyfin-icon.png");
+    const lines = [
+        'use framework "AppKit"',
+        `set iconPath to (current application's NSString's stringWithString:"${iconPath}")'s stringByExpandingTildeInPath()`,
+        `set filePath to (current application's NSString's stringWithString:"${splashPath}")'s stringByExpandingTildeInPath()`,
+        "set img to current application's NSImage's alloc()'s initWithContentsOfFile:iconPath",
+        "current application's NSWorkspace's sharedWorkspace()'s setIcon:img forFile:filePath options:0"
+    ];
+    const args = ["-l", "AppleScript"];
+    for (const line of lines) {
+        args.push("-e", line);
+    }
+    utils.exec("osascript", args)
+        .then((result) => {
+            if (result.status !== 0) {
+                logDebug("Jellyfin: Splash icon script failed:", result.stderr);
+            }
+        })
+        .catch((error) => {
+            logDebug("Jellyfin: Splash icon exec failed:", error);
+        });
+}
 
 export function logDebug(...args: unknown[]): void {
     if (DEBUG_LOGS) {

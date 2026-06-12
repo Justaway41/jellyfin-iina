@@ -94,10 +94,13 @@ initializePlaybackHandlers({
     }
 });
 
-event.on("iina.window-loaded", () => {
-    logDebug("Jellyfin: Window loaded");
+let sidebarHandlersRegistered = false;
 
-    sidebar.loadFile("ui/sidebar.html");
+function registerSidebarHandlers(): void {
+    if (sidebarHandlersRegistered) {
+        return;
+    }
+    sidebarHandlersRegistered = true;
 
     sidebar.onMessage(MESSAGE_NAMES.PlayItem, (data: PlayItemPayload) => {
         logDebug("Jellyfin: Received playItem");
@@ -126,15 +129,24 @@ event.on("iina.window-loaded", () => {
     sidebar.onMessage(MESSAGE_NAMES.AuthCleared, () => {
         clearAuthState();
     });
+}
+
+event.on("iina.window-will-close", () => {
+    windowReady = false;
+    sidebarVisible = false;
+    logDebug("Jellyfin: Window closing, notifying global entry");
+    global.postMessage("playerClosed", {});
+});
+
+event.on("iina.window-loaded", () => {
+    logDebug("Jellyfin: Window loaded");
+
+    sidebar.loadFile("ui/sidebar.html");
+    registerSidebarHandlers();
 
     windowReady = true;
 
     global.postMessage("playerReady", {});
-
-    event.on("iina.window-will-close", () => {
-        logDebug("Jellyfin: Window closing, notifying global entry");
-        global.postMessage("playerClosed", {});
-    });
 
     if (pendingShowSidebar) {
         logDebug("Jellyfin: Showing sidebar (pending request)");

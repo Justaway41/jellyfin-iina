@@ -3,10 +3,10 @@ import type { PlayItemPayload } from "../shared/messages";
 
 import {
     EOF_WATCH_THRESHOLD_SECONDS,
-    JELLYFIN_SPLASH_URL,
     PLAYBACK_TICK_INTERVAL_MS,
     PROGRESS_REPORT_INTERVAL_MS,
     RESUME_SEEK_DELAY_MS,
+    SPLASH_URL_MARKER,
     TICKS_PER_SECOND
 } from "./constants";
 import { requestJson } from "./http";
@@ -16,6 +16,7 @@ import { loadExternalSubtitles } from "./subtitles";
 import { getAuthState, getCurrentPlayback, PlaybackState, setCurrentPlayback } from "./state";
 import {
     formatError,
+    getSplashUrl,
     getUrlOrigin,
     isSupportedServerUrl,
     logDebug,
@@ -33,6 +34,78 @@ let shouldResetPlaylistOnNextLoad = false;
 let lastKnownPositionTicks = 0;
 let playbackTickTimer: ReturnType<typeof setInterval> | null = null;
 let playbackTickCount = 0;
+let savedPositionOnQuitFlag: boolean | null = null;
+
+// IINA records the splash image as "last played file" (shown as a Resume entry
+// on the welcome window) via mpv's save-position-on-quit. Suppress the flag
+// while the splash is showing and restore it once real media loads.
+function suppressSavePositionForSplash(): void {
+    try {
+        if (savedPositionOnQuitFlag === null) {
+            savedPositionOnQuitFlag = mpv.getFlag("save-position-on-quit");
+        }
+        mpv.set("save-position-on-quit", false);
+    } catch (error) {
+        logDebug("Jellyfin: Could not suppress save-position-on-quit:", formatError(error));
+    }
+}
+
+// The splash image ends after mpv's image-display-duration (default 1s),
+// which makes keep-open pause the player and IINA flash a "Pause" OSD.
+// (Looping instead is no better: every loop wrap emits MPV_EVENT_SEEK and
+// IINA flashes a seek OSD.) Displaying images indefinitely avoids EOF
+// entirely; the option must be set before the image loads to take effect.
+let savedImageDisplayDuration: string | null = null;
+
+function overrideImageDurationForSplash(): void {
+    try {
+        if (savedImageDisplayDuration === null) {
+            savedImageDisplayDuration = mpv.getString("image-display-duration") || "1";
+        }
+        mpv.set("image-display-duration", "inf");
+    } catch (error) {
+        logDebug("Jellyfin: Could not set image-display-duration:", formatError(error));
+    }
+}
+
+function restoreImageDisplayDuration(): void {
+    if (savedImageDisplayDuration === null) {
+        return;
+    }
+    try {
+        mpv.set("image-display-duration", savedImageDisplayDuration);
+    } catch (error) {
+        logDebug("Jellyfin: Could not restore image-display-duration:", formatError(error));
+    }
+    savedImageDisplayDuration = null;
+}
+
+// Undocumented core API (present in IINA <= 1.4.3, missing from the d.ts):
+// setUIVisibility assigns its argument to PlayerCore.disableUI, so the
+// semantics are inverted — passing true hides the on-screen controls.
+function setPlayerUIHidden(hidden: boolean): void {
+    const coreWithUI = core as typeof core & { setUIVisibility?: (visible: boolean) => void };
+    if (typeof coreWithUI.setUIVisibility !== "function") {
+        return;
+    }
+    try {
+        coreWithUI.setUIVisibility(hidden);
+    } catch (error) {
+        logDebug("Jellyfin: Could not toggle player UI:", formatError(error));
+    }
+}
+
+function restoreSavePositionOnQuit(): void {
+    if (savedPositionOnQuitFlag === null) {
+        return;
+    }
+    try {
+        mpv.set("save-position-on-quit", savedPositionOnQuitFlag);
+    } catch (error) {
+        logDebug("Jellyfin: Could not restore save-position-on-quit:", formatError(error));
+    }
+    savedPositionOnQuitFlag = null;
+}
 
 export interface PlaybackHandlersOptions {
     showSidebar: () => void;
@@ -76,6 +149,10 @@ export function handlePlayItem(
 }
 
 export function initializePlaybackHandlers(options: PlaybackHandlersOptions): void {
+    // Runs before the initial file loads, so a player created with the splash
+    // URL already has the override in place.
+    overrideImageDurationForSplash();
+
     event.on("mpv.file-loaded", () => {
         const url = mpv.getString("path");
         if (!url) {
@@ -84,13 +161,20 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
 
         isReplacingPlayback = false;
 
-        if (url.includes("Jellyfin.png")) {
+        if (url.includes(SPLASH_URL_MARKER)) {
             logDebug("Jellyfin: Splash loaded, showing sidebar");
             clearPlaybackState("splash loaded");
+            suppressSavePositionForSplash();
+            setPlayerUIHidden(true);
+            applyWindowTitle("Jellyfin");
             options.showSidebar();
             options.refreshSidebar();
             return;
         }
+
+        restoreSavePositionOnQuit();
+        restoreImageDisplayDuration();
+        setPlayerUIHidden(false);
 
         if (!url.includes("/Videos/") || !url.includes("playSessionId=")) {
             clearPlaybackState("non-Jellyfin file loaded");
@@ -422,8 +506,9 @@ function clearPlaybackState(reason: string): void {
 function handleNoNextEpisode(reason: string, options: PlaybackHandlersOptions): void {
     logDebug("Jellyfin: No next episode:", reason);
     isReplacingPlayback = true;
+    overrideImageDurationForSplash();
     try {
-        core.open(JELLYFIN_SPLASH_URL);
+        core.open(getSplashUrl());
     } catch (error) {
         console.error(`Jellyfin: Failed to open splash with core.open: ${formatError(error)}`);
     }

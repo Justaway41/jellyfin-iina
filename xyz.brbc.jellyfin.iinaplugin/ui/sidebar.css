@@ -1,22 +1,24 @@
 /* ui/sidebar.css - Sidebar styling */
 :root {
-    --bg-primary: #1a1a1a;
-    --bg-secondary: #252525;
-    --bg-tertiary: #2f2f2f;
-    --bg-hover: #333333;
+    --bg-primary: #1c1c1e;
+    --bg-secondary: #232326;
+    --bg-tertiary: #2c2c30;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --bg-active: rgba(255, 255, 255, 0.1);
+    --hairline: rgba(255, 255, 255, 0.08);
     --bg-progress: rgba(0, 164, 220, 0.12);
     --text-primary: #ffffff;
-    --text-secondary: #999999;
+    --text-secondary: #98989d;
     --accent-color: #00a4dc; /* Jellyfin blue */
     --accent-hover: #0085b3;
     --error-color: #e74c3c;
-    --success-color: #2ecc71;
-    --border-radius: 8px;
+    --border-radius: 6px;
     --spacing-xs: 4px;
     --spacing-sm: 8px;
     --spacing-md: 16px;
     --spacing-lg: 24px;
     --spacing-xl: 32px;
+    --header-height: 48px;
 }
 
 * {
@@ -28,6 +30,8 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
     background-color: var(--bg-primary);
+    background-image: linear-gradient(to bottom, #202022, #1a1a1c);
+    background-attachment: fixed;
     color: var(--text-primary);
     font-size: 13px;
     line-height: 1.4;
@@ -76,7 +80,7 @@ body {
     width: 100%;
     padding: var(--spacing-sm) var(--spacing-md);
     background-color: var(--bg-secondary);
-    border: 1px solid var(--bg-hover);
+    border: 1px solid var(--hairline);
     border-radius: var(--border-radius);
     color: var(--text-primary);
     font-size: 14px;
@@ -134,9 +138,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--spacing-md);
-    background-color: var(--bg-secondary);
-    border-bottom: 1px solid var(--bg-hover);
+    height: var(--header-height);
+    padding: 0 var(--spacing-md);
+    background-color: rgba(32, 32, 34, 0.96);
+    border-bottom: 1px solid var(--hairline);
     position: sticky;
     top: 0;
     z-index: 10;
@@ -153,24 +158,30 @@ body {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
+    min-width: 0;
 }
 
 .jellyfin-logo {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    flex-shrink: 0;
     background: url('assets/jellyfin-icon.png') center/cover no-repeat;
 }
 
 .status-text {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xs);
+    gap: 1px;
+    min-width: 0;
 }
 
 .server-name {
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .server-details {
@@ -185,26 +196,28 @@ body {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
-    border-bottom: 1px solid var(--bg-hover);
-    background-color: var(--bg-primary);
+    padding: var(--spacing-sm) var(--spacing-md) var(--spacing-xs);
+    background-color: transparent;
     position: sticky;
-    top: 56px;
+    top: var(--header-height);
     z-index: 9;
 }
 
 .section-header h2 {
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 600;
     margin: 0;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
 }
 
 .btn-icon {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     background: none;
     border: none;
-    color: var(--text-primary);
+    color: var(--text-secondary);
     cursor: pointer;
     border-radius: var(--border-radius);
     display: flex;
@@ -215,22 +228,23 @@ body {
 
 .btn-icon:hover {
     background-color: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .search-bar {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
-    padding: var(--spacing-md);
-    background-color: var(--bg-primary);
-    border-bottom: 1px solid var(--bg-hover);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: transparent;
+    border-bottom: 1px solid var(--hairline);
 }
 
 .search-bar input {
     flex: 1;
-    padding: var(--spacing-sm) var(--spacing-md);
+    padding: 6px 10px;
     background-color: var(--bg-secondary);
-    border: 1px solid var(--bg-hover);
+    border: 1px solid var(--hairline);
     border-radius: var(--border-radius);
     color: var(--text-primary);
     font-size: 13px;
@@ -243,27 +257,26 @@ body {
 
 /* Content Area */
 .content {
-    padding: var(--spacing-md);
+    padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-md);
 }
 
-/* List Cards */
+/* List Rows */
 .media-list {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
+    gap: 2px;
 }
 
 .list-card {
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm);
-    background-color: var(--bg-secondary);
+    gap: 10px;
+    padding: 6px var(--spacing-sm);
+    background-color: transparent;
     border-radius: var(--border-radius);
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background-color 0.15s;
     position: relative;
-    border: 1px solid transparent;
 }
 
 .home-section,
@@ -271,18 +284,19 @@ body {
 .season-section {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-xl);
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-lg);
 }
 
 .home-section h3,
 .result-section h3,
 .season-section h3 {
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+    padding: var(--spacing-xs) var(--spacing-sm);
 }
 
 .season-grid {
@@ -301,9 +315,10 @@ body {
 .season-poster {
     width: 100%;
     aspect-ratio: 2 / 3;
-    border-radius: var(--border-radius);
+    border-radius: 4px;
     overflow: hidden;
     background-color: var(--bg-tertiary);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .season-thumb {
@@ -314,7 +329,7 @@ body {
 }
 
 .season-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 400;
     color: var(--text-secondary);
     text-align: center;
@@ -328,11 +343,15 @@ body {
 .list-card:focus,
 .list-card:focus-visible {
     outline: none;
-    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px var(--accent-color) inset;
 }
 
 .list-card:hover {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-hover);
+}
+
+.list-card:active {
+    background-color: var(--bg-active);
 }
 
 .thumb-wrapper {
@@ -340,9 +359,10 @@ body {
     width: 72px;
     height: 40px;
     flex-shrink: 0;
-    border-radius: var(--border-radius);
+    border-radius: 4px;
     overflow: hidden;
     background-color: var(--bg-tertiary);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .list-thumb {
@@ -360,9 +380,9 @@ body {
     justify-content: center;
     background: rgba(0, 0, 0, 0.4);
     color: white;
-    font-size: 18px;
+    font-size: 16px;
     opacity: 0;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.15s ease;
 }
 
 .list-card:hover .play-overlay,
@@ -373,70 +393,57 @@ body {
 .list-body {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xs);
+    gap: 2px;
     min-width: 0;
     flex: 1;
 }
 
 .list-duration {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-secondary);
     margin-left: var(--spacing-sm);
     white-space: nowrap;
-}
-
-.list-title,
-.list-meta {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    position: relative;
+    font-variant-numeric: tabular-nums;
 }
 
 .list-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.3;
 }
 
 .list-meta {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-secondary);
-}
-
-.list-title::after,
-.list-meta::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 24px;
-    height: 100%;
-    pointer-events: none;
-    background: linear-gradient(90deg, rgba(37, 37, 37, 0), rgba(37, 37, 37, 0.95));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .thumb-progress {
     position: absolute;
-    left: 6px;
-    right: 6px;
-    bottom: 4px;
-    height: 7px;
-    background-color: var(--bg-hover);
-    border-radius: 999px;
-    overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.6);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background-color: rgba(0, 0, 0, 0.55);
 }
 
 .thumb-progress-fill {
     height: 100%;
+    background-color: var(--accent-color);
 }
 
 .thumb-progress-fill--complete {
-    background-color: var(--success-color);
+    opacity: 0.45;
 }
 
 .thumb-progress-fill--partial {
-    background-color: #f2b84b;
+    opacity: 1;
 }
 
 
@@ -450,7 +457,7 @@ body {
 .spinner {
     width: 24px;
     height: 24px;
-    border: 2px solid var(--bg-hover);
+    border: 2px solid var(--hairline);
     border-top-color: var(--accent-color);
     border-radius: 50%;
     animation: spin 1s linear infinite;
@@ -470,14 +477,14 @@ body {
     padding: var(--spacing-sm) var(--spacing-md);
     background-color: var(--bg-secondary);
     color: var(--text-primary);
-    border: 1px solid var(--bg-hover);
+    border: 1px solid var(--hairline);
     border-radius: var(--border-radius);
     cursor: pointer;
     margin-top: var(--spacing-md);
 }
 
 .btn-secondary:hover {
-    background-color: var(--bg-hover);
+    background-color: var(--bg-tertiary);
 }
 
 /* Empty State */
