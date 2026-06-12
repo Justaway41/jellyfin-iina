@@ -8,6 +8,8 @@ Plugin for accessing Movies and TV series from your Jellyfin server in IINA. Dis
 
 - **HTTP server URLs are supported** (upstream requires https since v2.0.0). Useful for Tailscale/VPN or LAN setups where TLS is unnecessary. Plain http sends your credentials and media unencrypted, so only use it on a trusted network.
 - **External subtitles are loaded** (e.g. downloaded by Bazarr). Sidecar subtitle files known to Jellyfin are fetched and added to mpv's subtitle tracks automatically, including for auto-played next episodes.
+- **Redesigned UI.** Dark splash screen and a native macOS-style sidebar: skeleton loading, thumbnail fade-in, time-remaining labels on partially watched items, and Up Next rows that lead with the series name.
+- **Polished splash window.** Titled "Jellyfin" with the logo in the title bar, media controls hidden while the splash is showing, no Pause/seek OSD flashes, and the splash stays out of macOS recents and IINA's Resume entry.
 
 ## Installation
 
@@ -34,6 +36,7 @@ Restart IINA after linking. Re-run `bun run build` and restart IINA to pick up c
 
 - Open the Jellyfin sidebar with Shift+J (also available from the Plugin menu).
 - Both `http://` and `https://` server URLs are supported. Plain http sends your credentials and media unencrypted, so only use it on a trusted network (e.g. Tailscale/VPN or localhost).
+- The cursor disappears after a few seconds of staying still inside the player window. This is IINA's own control-bar/cursor auto-hide and can't be changed from a plugin; moving the mouse brings it back. To make it less aggressive globally: `defaults write com.colliderli.iina controlBarAutoHideTimeout -float 10` (also keeps the on-screen controls visible longer during playback).
 
 ## Features
 
@@ -44,10 +47,6 @@ Restart IINA after linking. Re-run `bun run build` and restart IINA to pick up c
 - Auto-play next episode (can be disabled). Next episode is added to the mpv playlist for native feel and media key support.
 - Intro-skipper integration (can be disabled). Clickable Skip button shows up during Intro/Credits similarly to the web interface.
 - External subtitle support (e.g. Bazarr downloads) with language and title labels in the subtitle menu.
-
-## Screenshot
-
-![Screenshot](images/screenshot.png)
 
 ## Disclaimer
 
