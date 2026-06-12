@@ -7,7 +7,7 @@ import {
 } from "./constants";
 import { handlePlayItem, initializePlaybackHandlers } from "./playback";
 import { clearAuthState, updateAuthState } from "./state";
-import { isHttpsUrl, logDebug, normalizeServerUrl } from "./utils";
+import { isSupportedServerUrl, logDebug, normalizeServerUrl } from "./utils";
 
 const { console, event, global, preferences, sidebar, utils } = iina;
 
@@ -43,8 +43,8 @@ function hideSidebar(): void {
     sidebarVisible = false;
 }
 
-function showHttpsAlert(): void {
-    utils.ask("Jellyfin requires an https:// server URL. HTTP is not supported.");
+function showInvalidUrlAlert(): void {
+    utils.ask("Jellyfin server URL must start with http:// or https://.");
 }
 
 function getPreferEpisodeImagesInNextUp(): boolean {
@@ -94,7 +94,7 @@ event.on("iina.window-loaded", () => {
         logDebug("Jellyfin: Received playItem");
         handlePlayItem(data, {
             hideSidebar: hideSidebar,
-            showHttpsAlert: showHttpsAlert
+            showInvalidUrlAlert: showInvalidUrlAlert
         });
     });
 
@@ -103,8 +103,8 @@ event.on("iina.window-loaded", () => {
             return;
         }
         const normalizedUrl = normalizeServerUrl(data.serverUrl);
-        if (!isHttpsUrl(normalizedUrl)) {
-            showHttpsAlert();
+        if (!isSupportedServerUrl(normalizedUrl)) {
+            showInvalidUrlAlert();
             return;
         }
         updateAuthState({

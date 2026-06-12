@@ -7,6 +7,7 @@ import type {
     MediaSegmentDto,
     MediaSegmentDtoQueryResult,
     MediaSourceInfo,
+    MediaStream,
     PlaybackInfoResponse,
     PlaybackProgressInfo,
     PlaybackStartInfo,
@@ -23,6 +24,7 @@ export type JellyfinDeviceProfile = DeviceProfile;
 export type JellyfinMediaSegment = MediaSegmentDto;
 export type JellyfinMediaSegmentQuery = MediaSegmentDtoQueryResult;
 export type JellyfinMediaSourceInfo = MediaSourceInfo;
+export type JellyfinMediaStream = MediaStream;
 export type JellyfinPlaybackInfoResponse = PlaybackInfoResponse;
 export type JellyfinPlaybackProgressInfo = PlaybackProgressInfo;
 export type JellyfinPlaybackStartInfo = PlaybackStartInfo;

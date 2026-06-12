@@ -7,7 +7,7 @@ import {
     loadSessionFromStorage,
     saveSessionToStorage
 } from "../storage";
-import { getServerHost, isHttpsUrl, normalizeServerUrl } from "../utils";
+import { getServerHost, isSupportedServerUrl, normalizeServerUrl } from "../utils";
 import { goHomeFresh, resetSearchState } from "./navigation";
 import { MESSAGE_NAMES } from "../../shared/messages";
 
@@ -17,8 +17,8 @@ function normalizeAndValidateUrl(rawUrl: string): string | null {
         ui.loginError.textContent = "Please enter a server URL.";
         return null;
     }
-    if (!isHttpsUrl(normalizedUrl)) {
-        ui.loginError.textContent = "Jellyfin requires an https:// server URL.";
+    if (!isSupportedServerUrl(normalizedUrl)) {
+        ui.loginError.textContent = "Server URL must start with http:// or https://.";
         return null;
     }
     return normalizedUrl;
@@ -33,7 +33,7 @@ export function restoreSessionFromStorage(): boolean {
     }
 
     const normalizedUrl = normalizeServerUrl(savedSession.serverUrl);
-    if (!normalizedUrl || !isHttpsUrl(normalizedUrl)) {
+    if (!normalizedUrl || !isSupportedServerUrl(normalizedUrl)) {
         clearSessionFromStorage();
         sendAuthCleared();
         showLoginView();

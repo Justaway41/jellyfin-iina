@@ -1,6 +1,6 @@
 import { DEBUG_LOGS, TICKS_PER_MINUTE } from "./constants";
 
-export { isHttpsUrl } from "../shared/url";
+export { isSupportedServerUrl } from "../shared/url";
 
 export function log(...args: unknown[]): void {
     if (DEBUG_LOGS) {

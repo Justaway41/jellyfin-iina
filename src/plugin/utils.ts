@@ -12,7 +12,7 @@ export function normalizeServerUrl(url: string): string {
     return url.trim().replace(/\/+$/, "");
 }
 
-export { isHttpsUrl } from "../shared/url";
+export { isSupportedServerUrl } from "../shared/url";
 
 export function parseUrlParams(url: string): Record<string, string> {
     const params: Record<string, string> = {};

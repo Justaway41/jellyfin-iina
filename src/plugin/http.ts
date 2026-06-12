@@ -1,6 +1,6 @@
 import { buildMediaBrowserAuthorizationHeader } from "../shared/auth";
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME } from "./constants";
-import { buildQueryString, isHttpsUrl, normalizeServerUrl } from "./utils";
+import { buildQueryString, isSupportedServerUrl, normalizeServerUrl } from "./utils";
 
 const { http } = iina;
 
@@ -66,8 +66,8 @@ function resolveRequest(context: HttpContext, options: HttpRequestOptions): {
     requestOptions: IINA.HTTPRequestOption<unknown>;
 } {
     const normalizedUrl = normalizeServerUrl(context.serverUrl);
-    if (!isHttpsUrl(normalizedUrl)) {
-        throw new Error("Jellyfin server URL must start with https://");
+    if (!isSupportedServerUrl(normalizedUrl)) {
+        throw new Error("Jellyfin server URL must start with http:// or https://");
     }
 
     const url = buildUrl({

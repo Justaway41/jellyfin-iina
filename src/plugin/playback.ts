@@ -12,11 +12,12 @@ import {
 import { requestJson } from "./http";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
+import { loadExternalSubtitles } from "./subtitles";
 import { getAuthState, getCurrentPlayback, PlaybackState, setCurrentPlayback } from "./state";
 import {
     formatError,
     getUrlOrigin,
-    isHttpsUrl,
+    isSupportedServerUrl,
     logDebug,
     parseEpisodeIndex,
     parseUrlParams,
@@ -40,15 +41,15 @@ export interface PlaybackHandlersOptions {
 
 export function handlePlayItem(
     data: PlayItemPayload,
-    options: { hideSidebar: () => void; showHttpsAlert: () => void }
+    options: { hideSidebar: () => void; showInvalidUrlAlert: () => void }
 ): void {
     if (!data || !data.url) {
         return;
     }
 
     const url = String(data.url);
-    if (!isHttpsUrl(url)) {
-        options.showHttpsAlert();
+    if (!isSupportedServerUrl(url)) {
+        options.showInvalidUrlAlert();
         return;
     }
 
@@ -102,8 +103,8 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
                 clearPlaybackState("missing playback metadata");
                 return;
             }
-            if (!isHttpsUrl(playback.serverUrl)) {
-                console.error("Jellyfin: Skipping HTTP playback reporting");
+            if (!isSupportedServerUrl(playback.serverUrl)) {
+                console.error("Jellyfin: Skipping playback reporting for unsupported server URL");
                 return;
             }
 
@@ -200,6 +201,7 @@ function startPlaybackSession(playback: PlaybackState, options: PlaybackHandlers
     }
 
     void reportPlaybackStart();
+    void loadExternalSubtitles(playback);
     startSegmentPolling();
 
     if (shouldResetPlaylistOnNextLoad) {

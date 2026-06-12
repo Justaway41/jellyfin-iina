@@ -1,3 +1,4 @@
-export function isHttpsUrl(url: string): boolean {
-    return url.trim().toLowerCase().startsWith("https://");
+export function isSupportedServerUrl(url: string): boolean {
+    const normalized = url.trim().toLowerCase();
+    return normalized.startsWith("https://") || normalized.startsWith("http://");
 }
