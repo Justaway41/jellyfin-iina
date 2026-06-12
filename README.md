@@ -2,14 +2,12 @@
 
 Plugin for accessing Movies and TV series from your Jellyfin server in IINA. Displays a simplified view of your library that lets you browse and play items right from IINA. **Not affiliated with the official Jellyfin Project.**
 
-> This is a fork of [jellyfin-iina](https://github.com/ada-bee/jellyfin-iina) by [ada-bee](https://github.com/ada-bee), who created and maintains the original plugin. All credit for the original work goes to them. This fork exists for my personal setup and adds a few changes on top.
+> This is a fork of [jellyfin-iina](https://github.com/ada-bee/jellyfin-iina) by [ada-bee](https://github.com/ada-bee), who created and maintains the original plugin. All credit for the original work goes to them — check out their other plugin, [YouTube IINA Plugin](https://github.com/ada-bee/youtube-iina), as well. This fork exists for my personal setup and adds a few changes on top.
 
 ## What's different in this fork
 
 - **HTTP server URLs are supported** (upstream requires https since v2.0.0). Useful for Tailscale/VPN or LAN setups where TLS is unnecessary. Plain http sends your credentials and media unencrypted, so only use it on a trusted network.
 - **External subtitles are loaded** (e.g. downloaded by Bazarr). Sidecar subtitle files known to Jellyfin are fetched and added to mpv's subtitle tracks automatically, including for auto-played next episodes.
-
-If you like this plugin you might also be interested in [YouTube IINA Plugin](https://github.com/ada-bee/youtube-iina).
 
 ## Installation
 
