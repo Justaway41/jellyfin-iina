@@ -11,6 +11,7 @@ export interface ListCardOptions {
     disableEpisodeThumbnailFallback?: boolean;
     useSeriesBackdropFallback?: boolean;
     showSeriesEpisodeCounts?: boolean;
+    seriesNameAsTitle?: boolean;
 }
 
 export interface CardContext {
@@ -41,9 +42,40 @@ export function updateServerHeader(displayName: string, hostName: string): void 
 }
 
 export function showLoading(): void {
+    renderSkeletonRows();
     ui.loading.classList.remove("hidden");
     ui.content.classList.add("hidden");
     ui.errorState.classList.add("hidden");
+}
+
+function renderSkeletonRows(count: number = 6): void {
+    const list = document.createElement("div");
+    list.className = "media-list";
+
+    for (let i = 0; i < count; i++) {
+        const row = document.createElement("div");
+        row.className = "skeleton-row";
+
+        const thumb = document.createElement("div");
+        thumb.className = "skeleton skeleton-thumb";
+        row.appendChild(thumb);
+
+        const body = document.createElement("div");
+        body.className = "skeleton-body";
+
+        const titleLine = document.createElement("div");
+        titleLine.className = "skeleton skeleton-line";
+        body.appendChild(titleLine);
+
+        const metaLine = document.createElement("div");
+        metaLine.className = "skeleton skeleton-line skeleton-line--short";
+        body.appendChild(metaLine);
+
+        row.appendChild(body);
+        list.appendChild(row);
+    }
+
+    ui.loading.replaceChildren(list);
 }
 
 export function hideLoading(): void {
@@ -118,6 +150,7 @@ export function renderHomeSections(
                 list.appendChild(buildListCardElement(item, {
                     showSeriesName: isUpNextSection || section.title === "Latest TV",
                     showEpisodeNumber: true,
+                    seriesNameAsTitle: isUpNextSection,
                     ...(isUpNextSection ? getNextUpImageOptions() : {})
                 }));
             });
@@ -314,6 +347,7 @@ function buildSeasonCardElement(season: JellyfinBaseItem): HTMLElement {
     image.dataset.fallback = seriesPosterUrl;
     image.alt = seasonName;
     image.loading = "lazy";
+    enableThumbFadeIn(image);
 
     poster.appendChild(image);
     card.appendChild(poster);
@@ -328,7 +362,7 @@ function buildSeasonCardElement(season: JellyfinBaseItem): HTMLElement {
 
 function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions): HTMLElement {
     const metadata = buildMetadataText(item, options);
-    const runtime = formatRuntime(item.RunTimeTicks || undefined);
+    const runtime = formatDurationText(item);
     const durationLabel = buildDurationLabelElement(item, runtime, options);
     const progressBar = buildThumbProgressElement(item);
 
@@ -381,6 +415,7 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     image.dataset.type = item.Type || "";
     image.alt = displayName;
     image.loading = "lazy";
+    enableThumbFadeIn(image);
     thumbWrapper.appendChild(image);
 
     const playOverlay = document.createElement("div");
@@ -395,9 +430,13 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     const listBody = document.createElement("div");
     listBody.className = "list-body";
 
+    const useSeriesNameAsTitle = Boolean(
+        options.seriesNameAsTitle && item.Type === "Episode" && item.SeriesName
+    );
+
     const title = document.createElement("div");
     title.className = "list-title";
-    title.textContent = displayName;
+    title.textContent = useSeriesNameAsTitle ? String(item.SeriesName) : displayName;
     listBody.appendChild(title);
 
     const meta = document.createElement("div");
@@ -445,6 +484,28 @@ function buildDurationLabelElement(item: JellyfinBaseItem, runtime: string, opti
     return null;
 }
 
+// Show time left instead of total runtime for partially-watched items, so
+// the label agrees with the progress bar on the thumbnail.
+function formatDurationText(item: JellyfinBaseItem): string {
+    const runtimeTicks = item.RunTimeTicks || 0;
+    const positionTicks = item.UserData?.PlaybackPositionTicks || 0;
+    if (runtimeTicks && positionTicks && positionTicks < runtimeTicks && !item.UserData?.Played) {
+        const remaining = formatRuntime(runtimeTicks - positionTicks);
+        if (remaining && remaining !== "0m") {
+            return `${remaining} left`;
+        }
+    }
+    return formatRuntime(runtimeTicks || undefined);
+}
+
+function enableThumbFadeIn(image: HTMLImageElement): void {
+    image.classList.add("thumb-fade");
+    image.addEventListener("load", () => image.classList.add("thumb-fade--loaded"), { once: true });
+    if (image.complete && image.naturalWidth > 0) {
+        image.classList.add("thumb-fade--loaded");
+    }
+}
+
 function buildMetadataText(item: JellyfinBaseItem, options: ListCardOptions): string {
     const metaParts: Array<string | number> = [];
 
@@ -452,7 +513,12 @@ function buildMetadataText(item: JellyfinBaseItem, options: ListCardOptions): st
         metaParts.push(formatEpisodeNumber(item.ParentIndexNumber, item.IndexNumber));
     }
 
-    if (options.showSeriesName !== false && item.SeriesName) {
+    if (options.seriesNameAsTitle && item.Type === "Episode" && item.SeriesName) {
+        // Series name is shown as the row title; surface the episode name here.
+        if (item.Name) {
+            metaParts.push(String(item.Name));
+        }
+    } else if (options.showSeriesName !== false && item.SeriesName) {
         metaParts.push(String(item.SeriesName));
     }
 

@@ -23,6 +23,9 @@ export function setupEventListeners(): void {
     ui.searchInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
             handleSearchSubmit(event);
+        } else if (event.key === "Escape" && ui.searchInput.value) {
+            event.preventDefault();
+            handleClearSearch();
         }
     });
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
