@@ -12,6 +12,7 @@ import {
 import { requestJson } from "./http";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
+import { keepAwakeTick, startKeepAwake, stopKeepAwake } from "./sleep";
 import { loadExternalSubtitles } from "./subtitles";
 import { getAuthState, getCurrentPlayback, PlaybackState, setCurrentPlayback } from "./state";
 import {
@@ -277,6 +278,7 @@ function startPlaybackSession(playback: PlaybackState, options: PlaybackHandlers
 
     lastKnownPositionTicks = 0;
     playbackTickCount = 0;
+    startKeepAwake();
     startPlaybackTick(options);
 
     if (pendingWindowTitle) {
@@ -441,6 +443,7 @@ function startPlaybackTick(options: PlaybackHandlersOptions): void {
         }
 
         updateLastKnownPosition();
+        keepAwakeTick(!mpv.getFlag("pause"));
         playbackTickCount += 1;
 
         if (playbackTickCount >= PROGRESS_REPORT_INTERVAL_MS / PLAYBACK_TICK_INTERVAL_MS) {
@@ -486,6 +489,7 @@ function stopPlaybackTick(): void {
 
 function cleanupPlaybackState(): void {
     stopPlaybackTick();
+    stopKeepAwake();
     clearSegmentState();
     setCurrentPlayback(null);
     lastKnownPositionTicks = 0;

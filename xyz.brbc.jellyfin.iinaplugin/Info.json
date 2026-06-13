@@ -1,9 +1,9 @@
 {
   "name": "Jellyfin",
   "identifier": "xyz.brbc.jellyfin",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "ghRepo": "Justaway41/jellyfin-iina",
-  "ghVersion": 12,
+  "ghVersion": 13,
   "description": "Browse and play media from your Jellyfin server",
   "author": {
     "name": "ada-bee"

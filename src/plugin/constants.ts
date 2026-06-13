@@ -21,6 +21,13 @@ export const PROGRESS_REPORT_INTERVAL_MS = 10000;
 export const PLAYBACK_TICK_INTERVAL_MS = 1000;
 export const EOF_WATCH_THRESHOLD_SECONDS = 0.5;
 
+// Display-sleep prevention: each caffeinate process lives at most
+// SLEEP_CAFFEINATE_TIMEOUT_SEC (crash safety) and is respawned every
+// SLEEP_REFRESH_INTERVAL_SEC while playing. Refresh < timeout so coverage never
+// gaps; the overlap is harmless (redundant assertions).
+export const SLEEP_CAFFEINATE_TIMEOUT_SEC = 30;
+export const SLEEP_REFRESH_INTERVAL_SEC = 20;
+
 export const SKIP_SEGMENT_POLL_INTERVAL_MS = 500;
 export const SKIP_SEGMENT_PREF_KEY = "skipSegmentsEnabled";
 export const AUTOPLAY_NEXT_PREF_KEY = "autoplayNextEpisodeEnabled";
